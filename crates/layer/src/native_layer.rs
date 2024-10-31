@@ -30,6 +30,7 @@ pub struct Builder<'c, W> {
     config_bytes: borrow::Cow<'c, [u8]>,
     writer: W,
     drop_flush_timeout: time::Duration,
+    drop_poll_timeout: time::Duration,
     background_flush_timeout: time::Duration,
     background_poll_timeout: time::Duration,
     background_poll_interval: time::Duration,
@@ -47,6 +48,7 @@ struct Inner<W> {
     ffi_session: sync::Arc<sync::Mutex<Option<cxx::UniquePtr<ffi::PerfettoTracingSession>>>>,
     writer: sync::Arc<W>,
     drop_flush_timeout: time::Duration,
+    drop_poll_timeout: time::Duration,
     force_flavor: Option<flavor::Flavor>,
     process_track_uuid: ids::TrackUuid,
     process_descriptor_sent: atomic::AtomicBool,
@@ -105,6 +107,7 @@ where
         let writer = sync::Arc::new(builder.writer);
 
         let drop_flush_timeout = builder.drop_flush_timeout;
+        let drop_poll_timeout = builder.drop_poll_timeout;
 
         let thread_ffi_session = sync::Arc::clone(&ffi_session);
         let thread_writer = sync::Arc::clone(&writer);
@@ -136,6 +139,7 @@ where
             ffi_session,
             writer,
             drop_flush_timeout,
+            drop_poll_timeout,
             force_flavor,
             process_track_uuid,
             process_descriptor_sent,
@@ -200,8 +204,8 @@ where
 
     /// Flush internal buffers, making the best effort for all pending writes to
     /// be visible on this layer's `writer`.
-    pub fn flush(&self, timeout: time::Duration) -> error::Result<()> {
-        self.inner.flush(timeout)
+    pub fn flush(&self, flush_timeout: time::Duration, poll_timeout: time::Duration) -> error::Result<()> {
+        self.inner.flush(flush_timeout, poll_timeout)
     }
 
     /// Stop the layer and stop collecting traces.
@@ -644,6 +648,7 @@ where
             config_bytes,
             writer,
             drop_flush_timeout: time::Duration::from_millis(100),
+            drop_poll_timeout: time::Duration::from_millis(100),
             background_flush_timeout: time::Duration::from_millis(100),
             background_poll_timeout: time::Duration::from_millis(100),
             background_poll_interval: time::Duration::from_millis(100),
@@ -678,6 +683,13 @@ where
     /// The timeout of the final flush that will happen when dropping this
     /// layer.
     pub fn with_drop_flush_timeout(mut self, drop_flush_timeout: time::Duration) -> Self {
+        self.drop_flush_timeout = drop_flush_timeout;
+        self
+    }
+
+    /// The timeout of the final poll that will happen when dropping this
+    /// layer.
+    pub fn with_drop_poll_timeout(mut self, drop_flush_timeout: time::Duration) -> Self {
         self.drop_flush_timeout = drop_flush_timeout;
         self
     }
@@ -747,7 +759,7 @@ where
 
 impl<W> Drop for Inner<W> {
     fn drop(&mut self) {
-        let _ = self.flush(self.drop_flush_timeout);
+        let _ = self.flush(self.drop_flush_timeout, self.drop_poll_timeout);
         let _ = self.stop();
     }
 }
