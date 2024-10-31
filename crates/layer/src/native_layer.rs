@@ -204,7 +204,11 @@ where
 
     /// Flush internal buffers, making the best effort for all pending writes to
     /// be visible on this layer's `writer`.
-    pub fn flush(&self, flush_timeout: time::Duration, poll_timeout: time::Duration) -> error::Result<()> {
+    pub fn flush(
+        &self,
+        flush_timeout: time::Duration,
+        poll_timeout: time::Duration,
+    ) -> error::Result<()> {
         self.inner.flush(flush_timeout, poll_timeout)
     }
 
