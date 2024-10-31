@@ -712,11 +712,20 @@ where
     }
 }
 
-impl<W> Inner<W> {
+impl<W> Inner<W>
+where
+    W: for<'w> fmt::MakeWriter<'w>,
+{
     fn flush(&self, timeout: time::Duration) -> error::Result<()> {
-        ffi_utils::with_session_lock(&*self.ffi_session, |session| {
-            ffi_utils::do_flush(session, timeout)
-        })
+        use std::io::Write as _;
+        let data = ffi_utils::with_session_lock(&*self.ffi_session, |session| {
+            let start = time::Instant::now();
+            ffi_utils::do_flush(session, timeout)?;
+            let data = ffi_utils::do_poll_traces(session, timeout - start.elapsed())?;
+            Ok(data)
+        })?;
+        self.writer.make_writer().write_all(&*data.data)?;
+        Ok(())
     }
 
     fn stop(&self) -> error::Result<()> {
