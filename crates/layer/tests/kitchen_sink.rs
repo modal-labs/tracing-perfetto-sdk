@@ -76,7 +76,10 @@ data_sources:
     time::sleep(time::Duration::from_secs(1)).await;
 
     drop(enter);
-    perfetto_layer.flush(time::Duration::from_millis(1000))?;
+    perfetto_layer.flush(
+        time::Duration::from_millis(1000),
+        time::Duration::from_millis(1000),
+    )?;
     drop(demo_span);
     drop(guard);
     perfetto_layer.stop()?;

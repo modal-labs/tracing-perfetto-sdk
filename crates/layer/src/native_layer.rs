@@ -20,7 +20,10 @@ use crate::{debug_annotations, error, ffi_utils, flavor, ids, init};
 /// system-level events.
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct NativeLayer<W> {
+pub struct NativeLayer<W>
+where
+    W: for<'w> fmt::MakeWriter<'w>,
+{
     inner: sync::Arc<Inner<W>>,
 }
 
@@ -43,7 +46,10 @@ struct ThreadLocalCtx {
     descriptor_sent: atomic::AtomicBool,
 }
 
-struct Inner<W> {
+struct Inner<W>
+where
+    W: for<'w> fmt::MakeWriter<'w>,
+{
     // Mutex is held during start, stop, flush, and poll
     ffi_session: sync::Arc<sync::Mutex<Option<cxx::UniquePtr<ffi::PerfettoTracingSession>>>>,
     writer: sync::Arc<W>,
@@ -761,7 +767,10 @@ where
     }
 }
 
-impl<W> Drop for Inner<W> {
+impl<W> Drop for Inner<W>
+where
+    W: for<'w> fmt::MakeWriter<'w>,
+{
     fn drop(&mut self) {
         let _ = self.flush(self.drop_flush_timeout, self.drop_poll_timeout);
         let _ = self.stop();
