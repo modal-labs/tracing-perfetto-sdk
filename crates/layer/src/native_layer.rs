@@ -43,7 +43,7 @@ struct ThreadLocalCtx {
 }
 
 struct Inner<W> {
-    // Mutex is held during start and stop, and by the background thread polling for events
+    // Mutex is held during start, stop, flush, and poll
     ffi_session: sync::Arc<sync::Mutex<Option<cxx::UniquePtr<ffi::PerfettoTracingSession>>>>,
     writer: sync::Arc<W>,
     drop_flush_timeout: time::Duration,
