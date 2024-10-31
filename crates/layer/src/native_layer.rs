@@ -716,12 +716,15 @@ impl<W> Inner<W>
 where
     W: for<'w> fmt::MakeWriter<'w>,
 {
-    fn flush(&self, timeout: time::Duration) -> error::Result<()> {
+    fn flush(
+        &self,
+        flush_timeout: time::Duration,
+        poll_timeout: time::Duration,
+    ) -> error::Result<()> {
         use std::io::Write as _;
         let data = ffi_utils::with_session_lock(&*self.ffi_session, |session| {
-            let start = time::Instant::now();
-            ffi_utils::do_flush(session, timeout)?;
-            let data = ffi_utils::do_poll_traces(session, timeout - start.elapsed())?;
+            ffi_utils::do_flush(session, flush_timeout)?;
+            let data = ffi_utils::do_poll_traces(session, poll_timeout)?;
             Ok(data)
         })?;
         self.writer.make_writer().write_all(&*data.data)?;
