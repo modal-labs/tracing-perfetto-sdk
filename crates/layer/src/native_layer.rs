@@ -381,15 +381,13 @@ where
 
         // Skip counters entirely if Mutex is poisoned -- can't afford to panic here
         if let Ok(mut counters_sent) = self.inner.counters_sent.lock() {
-            let mut had_new_counters = false;
             for counter in counters {
                 if !counters_sent.contains(&counter.name) {
                     new_counters.push(counter);
                     counters_sent.push(counter.name);
-                    had_new_counters = true;
                 }
             }
-            if had_new_counters {
+            if !new_counters.is_empty() {
                 if let Ok(mut counters_sent_cache) =
                     thread_local_ctx.counters_sent_cache.try_borrow_mut()
                 {
