@@ -437,6 +437,11 @@ where
     fn write_counter_event(&self, meta: &tracing::Metadata, counter: debug_annotations::Counter) {
         let packet = schema::TracePacket {
             timestamp: Some(ffi::trace_time_ns()),
+            optional_trusted_packet_sequence_id: Some(
+                trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
+                    ids::SequenceId::for_counter(counter.name).as_raw(),
+                ),
+            ),
             data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
                 r#type: Some(track_event::Type::Counter as i32),
                 track_uuid: Some(ids::TrackUuid::for_counter(counter.name).as_raw()),

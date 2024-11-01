@@ -70,6 +70,12 @@ impl SequenceId {
         SequenceId(h.finish() as u32)
     }
 
+    pub fn for_counter(counter_name: &str) -> SequenceId {
+        let mut h = hash::DefaultHasher::new();
+        (SEQUENCE_ID_NS, COUNTER_NS, counter_name).hash(&mut h);
+        SequenceId(h.finish() as u32)
+    }
+
     pub fn as_raw(self) -> u32 {
         self.0
     }
