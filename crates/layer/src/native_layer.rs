@@ -229,6 +229,50 @@ where
         self.inner.stop()
     }
 
+    fn report_slice_begin(
+        &self,
+        meta: &tracing::Metadata,
+        track_uuid: ids::TrackUuid,
+        sequence_id: ids::SequenceId,
+        debug_annotations: debug_annotations::ProtoDebugAnnotations,
+    ) {
+        let packet = self.create_slice_begin_track_event_packet(
+            meta,
+            track_uuid,
+            sequence_id,
+            debug_annotations,
+        );
+        self.ensure_context_known(meta);
+        self.write_packet(meta, packet);
+    }
+
+    fn report_slice_end(
+        &self,
+        meta: &tracing::Metadata,
+        track_uuid: ids::TrackUuid,
+        sequence_id: ids::SequenceId,
+        extensions: registry::Extensions,
+    ) {
+        let entered_track_uuid = extensions.get::<ids::TrackUuid>();
+        let track_uuid = *entered_track_uuid.unwrap_or(&track_uuid);
+        let entered_sequence_id = extensions.get::<ids::SequenceId>();
+        let sequence_id = *entered_sequence_id.unwrap_or(&sequence_id);
+
+        let packet = self.create_slice_end_track_event_packet(meta, track_uuid, sequence_id);
+        self.ensure_context_known(meta);
+        self.write_packet(meta, packet);
+    }
+
+    fn report_counters(&self, meta: &tracing::Metadata, counters: Vec<debug_annotations::Counter>) {
+        if !counters.is_empty() {
+            self.ensure_counters_known(meta, &counters);
+            for counter in counters {
+                let packet = self.create_counter_track_event_packet(counter);
+                self.write_packet(meta, packet);
+            }
+        }
+    }
+
     fn ensure_context_known(&self, meta: &tracing::Metadata) {
         self.ensure_process_known(meta);
         self.ensure_thread_known(meta);
@@ -253,24 +297,7 @@ where
             let cmdline = env::args_os()
                 .map(|s| s.to_string_lossy().into_owned())
                 .collect();
-            let packet = schema::TracePacket {
-                data: Some(trace_packet::Data::TrackDescriptor(
-                    schema::TrackDescriptor {
-                        uuid: Some(self.inner.process_track_uuid.as_raw()),
-                        process: Some(schema::ProcessDescriptor {
-                            pid: Some(process::id() as i32),
-                            cmdline,
-                            process_name: Some(process_name.clone()),
-                            ..Default::default()
-                        }),
-                        static_or_dynamic_name: Some(track_descriptor::StaticOrDynamicName::Name(
-                            process_name,
-                        )),
-                        ..Default::default()
-                    },
-                )),
-                ..Default::default()
-            };
+            let packet = self.create_process_track_descriptor(process_name, cmdline);
             self.write_packet(meta, packet);
         }
     }
@@ -286,68 +313,20 @@ where
                 .name()
                 .map(|s| s.to_owned())
                 .unwrap_or_else(|| format!("(unnamed thread {thread_id})"));
-            let packet = schema::TracePacket {
-                data: Some(trace_packet::Data::TrackDescriptor(
-                    schema::TrackDescriptor {
-                        parent_uuid: Some(self.inner.process_track_uuid.as_raw()),
-                        uuid: Some(ids::TrackUuid::for_thread(thread_id).as_raw()),
-                        thread: Some(schema::ThreadDescriptor {
-                            pid: Some(process::id() as i32),
-                            tid: Some(thread_id as i32),
-                            thread_name: Some(thread_name.clone()),
-                            ..Default::default()
-                        }),
-                        static_or_dynamic_name: Some(track_descriptor::StaticOrDynamicName::Name(
-                            thread_name,
-                        )),
-                        ..Default::default()
-                    },
-                )),
-                ..Default::default()
-            };
+            let packet = self.create_thread_track_descriptor(thread_id, thread_name);
             self.write_packet(meta, packet);
         }
     }
 
     #[cfg(feature = "tokio")]
     fn ensure_tokio_runtime_known(&self, meta: &tracing::Metadata) {
-        // Bogus thread ID; this is unlikely to ever be an actually real thread ID.
-        const TOKIO_THREAD_ID: usize = (i32::MAX - 1) as usize;
-
         let tokio_descriptor_sent = self
             .inner
             .tokio_descriptor_sent
             .fetch_or(true, atomic::Ordering::Relaxed);
         if !tokio_descriptor_sent {
-            let packet = schema::TracePacket {
-                data: Some(trace_packet::Data::TrackDescriptor(
-                    schema::TrackDescriptor {
-                        parent_uuid: Some(self.inner.process_track_uuid.as_raw()),
-                        uuid: Some(self.inner.tokio_track_uuid.as_raw()),
-                        thread: Some(schema::ThreadDescriptor {
-                            pid: Some(process::id() as i32),
-                            tid: Some(TOKIO_THREAD_ID as i32),
-                            thread_name: Some("tokio-runtime".to_owned()),
-                            ..Default::default()
-                        }),
-                        static_or_dynamic_name: Some(track_descriptor::StaticOrDynamicName::Name(
-                            "tokio-runtime".to_owned(),
-                        )),
-                        ..Default::default()
-                    },
-                )),
-                ..Default::default()
-            };
+            let packet = self.create_tokio_runtime_track_descriptor();
             self.write_packet(meta, packet);
-        }
-    }
-
-    fn report_counters(&self, meta: &tracing::Metadata, counters: Vec<debug_annotations::Counter>) {
-        if !counters.is_empty() {
-            self.ensure_counters_known(meta, &counters);
-            for counter in counters {
-                self.write_counter_event(meta, counter);
-            }
         }
     }
 
@@ -397,22 +376,102 @@ where
         }
 
         for counter in new_counters {
-            self.write_counter_track_descriptor(meta, counter);
+            let packet = self.create_counter_track_descriptor(counter);
+            self.write_packet(meta, packet);
         }
     }
 
-    fn write_counter_track_descriptor(
+    #[must_use]
+    fn create_process_track_descriptor(
         &self,
-        meta: &tracing::Metadata,
+        process_name: String,
+        cmdline: Vec<String>,
+    ) -> schema::TracePacket {
+        schema::TracePacket {
+            data: Some(trace_packet::Data::TrackDescriptor(
+                schema::TrackDescriptor {
+                    uuid: Some(self.inner.process_track_uuid.as_raw()),
+                    process: Some(schema::ProcessDescriptor {
+                        pid: Some(process::id() as i32),
+                        cmdline,
+                        process_name: Some(process_name.clone()),
+                        ..Default::default()
+                    }),
+                    static_or_dynamic_name: Some(track_descriptor::StaticOrDynamicName::Name(
+                        process_name,
+                    )),
+                    ..Default::default()
+                },
+            )),
+            ..Default::default()
+        }
+    }
+
+    #[must_use]
+    fn create_thread_track_descriptor(
+        &self,
+        thread_id: usize,
+        thread_name: String,
+    ) -> schema::TracePacket {
+        schema::TracePacket {
+            data: Some(trace_packet::Data::TrackDescriptor(
+                schema::TrackDescriptor {
+                    parent_uuid: Some(self.inner.process_track_uuid.as_raw()),
+                    uuid: Some(ids::TrackUuid::for_thread(thread_id).as_raw()),
+                    thread: Some(schema::ThreadDescriptor {
+                        pid: Some(process::id() as i32),
+                        tid: Some(thread_id as i32),
+                        thread_name: Some(thread_name.clone()),
+                        ..Default::default()
+                    }),
+                    static_or_dynamic_name: Some(track_descriptor::StaticOrDynamicName::Name(
+                        thread_name,
+                    )),
+                    ..Default::default()
+                },
+            )),
+            ..Default::default()
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    #[must_use]
+    fn create_tokio_runtime_track_descriptor(&self) -> schema::TracePacket {
+        // Bogus thread ID; this is unlikely to ever be an actually real thread ID.
+        const TOKIO_THREAD_ID: usize = (i32::MAX - 1) as usize;
+        schema::TracePacket {
+            data: Some(trace_packet::Data::TrackDescriptor(
+                schema::TrackDescriptor {
+                    parent_uuid: Some(self.inner.process_track_uuid.as_raw()),
+                    uuid: Some(self.inner.tokio_track_uuid.as_raw()),
+                    thread: Some(schema::ThreadDescriptor {
+                        pid: Some(process::id() as i32),
+                        tid: Some(TOKIO_THREAD_ID as i32),
+                        thread_name: Some("tokio-runtime".to_owned()),
+                        ..Default::default()
+                    }),
+                    static_or_dynamic_name: Some(track_descriptor::StaticOrDynamicName::Name(
+                        "tokio-runtime".to_owned(),
+                    )),
+                    ..Default::default()
+                },
+            )),
+            ..Default::default()
+        }
+    }
+
+    #[must_use]
+    fn create_counter_track_descriptor(
+        &self,
         counter: &debug_annotations::Counter,
-    ) {
+    ) -> schema::TracePacket {
         let (unit, unit_name) = if let Some(unit) = counter.unit {
             Self::pick_unit_repr(unit)
         } else {
             (None, None)
         };
 
-        let packet = schema::TracePacket {
+        schema::TracePacket {
             data: Some(trace_packet::Data::TrackDescriptor(
                 schema::TrackDescriptor {
                     parent_uuid: Some(self.inner.process_track_uuid.as_raw()),
@@ -429,13 +488,94 @@ where
                 },
             )),
             ..Default::default()
-        };
-
-        self.write_packet(meta, packet);
+        }
     }
 
-    fn write_counter_event(&self, meta: &tracing::Metadata, counter: debug_annotations::Counter) {
-        let packet = schema::TracePacket {
+    #[must_use]
+    fn create_slice_begin_track_event_packet(
+        &self,
+        meta: &tracing::Metadata,
+        track_uuid: ids::TrackUuid,
+        sequence_id: ids::SequenceId,
+        debug_annotations: debug_annotations::ProtoDebugAnnotations,
+    ) -> schema::TracePacket {
+        schema::TracePacket {
+            timestamp: Some(ffi::trace_time_ns()),
+            optional_trusted_packet_sequence_id: Some(
+                trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
+                    sequence_id.as_raw(),
+                ),
+            ),
+            data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
+                r#type: Some(track_event::Type::SliceBegin as i32),
+                track_uuid: Some(track_uuid.as_raw()),
+                name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
+                debug_annotations: debug_annotations.into_proto(),
+                source_location_field: Self::source_location_field(meta),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+    }
+
+    #[must_use]
+    fn create_slice_end_track_event_packet(
+        &self,
+        meta: &tracing::Metadata,
+        track_uuid: ids::TrackUuid,
+        sequence_id: ids::SequenceId,
+    ) -> schema::TracePacket {
+        schema::TracePacket {
+            timestamp: Some(ffi::trace_time_ns()),
+            optional_trusted_packet_sequence_id: Some(
+                trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
+                    sequence_id.as_raw(),
+                ),
+            ),
+            data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
+                r#type: Some(track_event::Type::SliceEnd as i32),
+                track_uuid: Some(track_uuid.as_raw()),
+                name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
+                source_location_field: Self::source_location_field(meta),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+    }
+
+    #[must_use]
+    fn create_event_track_event_packet(
+        &self,
+        meta: &tracing::Metadata,
+        mut debug_annotations: debug_annotations::ProtoDebugAnnotations,
+        track_uuid: ids::TrackUuid,
+        sequence_id: ids::SequenceId,
+    ) -> schema::TracePacket {
+        schema::TracePacket {
+            timestamp: Some(ffi::trace_time_ns()),
+            optional_trusted_packet_sequence_id: Some(
+                trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
+                    sequence_id.as_raw(),
+                ),
+            ),
+            data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
+                r#type: Some(track_event::Type::Instant as i32),
+                track_uuid: Some(track_uuid.as_raw()),
+                name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
+                debug_annotations: debug_annotations.into_proto(),
+                source_location_field: Self::source_location_field(meta),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+    }
+
+    #[must_use]
+    fn create_counter_track_event_packet(
+        &self,
+        counter: debug_annotations::Counter,
+    ) -> schema::TracePacket {
+        schema::TracePacket {
             timestamp: Some(ffi::trace_time_ns()),
             optional_trusted_packet_sequence_id: Some(
                 trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
@@ -449,31 +589,6 @@ where
                 ..Default::default()
             })),
             ..Default::default()
-        };
-        self.write_packet(meta, packet);
-    }
-
-    /// For a named unit, try to find an existing proto definition for that unit
-    /// and return as first return value, or else fall back to naming the unit
-    /// by name as the second return value.
-    fn pick_unit_repr(unit: &str) -> (Option<i32>, Option<String>) {
-        // If there's a defined unit in the proto schema, use that:
-        Self::parse_unit(unit)
-            .map(|u| (Some(u as i32), None))
-            .unwrap_or_else(|| {
-                // ...else, send the unit by name:
-                (None, Some(unit.to_owned()))
-            })
-    }
-
-    /// For a named unit, try to find an existing proto definition for that
-    /// unit.
-    fn parse_unit(name: &str) -> Option<counter_descriptor::Unit> {
-        match name {
-            "time_ns" | "ns" | "nanos" | "nanoseconds" => Some(counter_descriptor::Unit::TimeNs),
-            "count" | "nr" => Some(counter_descriptor::Unit::Count),
-            "size_bytes" | "bytes" => Some(counter_descriptor::Unit::SizeBytes),
-            _ => None,
         }
     }
 
@@ -504,66 +619,38 @@ where
         let _ = self.inner.writer.make_writer_for(meta).write_all(&buf);
     }
 
-    fn slice_begin(
-        &self,
-        meta: &tracing::Metadata,
-        track_uuid: ids::TrackUuid,
-        sequence_id: ids::SequenceId,
-        debug_annotations: debug_annotations::ProtoDebugAnnotations,
-    ) {
-        let packet = schema::TracePacket {
-            timestamp: Some(ffi::trace_time_ns()),
-            optional_trusted_packet_sequence_id: Some(
-                trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
-                    sequence_id.as_raw(),
-                ),
-            ),
-            data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
-                r#type: Some(track_event::Type::SliceBegin as i32),
-                track_uuid: Some(track_uuid.as_raw()),
-                name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
-                debug_annotations: debug_annotations.into_proto(),
-                source_location_field: source_location_field(meta),
-                ..Default::default()
-            })),
-            ..Default::default()
-        };
-
-        self.ensure_context_known(meta);
-        self.write_packet(meta, packet);
+    /// For a named unit, try to find an existing proto definition for that unit
+    /// and return as first return value, or else fall back to naming the unit
+    /// by name as the second return value.
+    fn pick_unit_repr(unit: &str) -> (Option<i32>, Option<String>) {
+        // If there's a defined unit in the proto schema, use that:
+        Self::parse_unit(unit)
+            .map(|u| (Some(u as i32), None))
+            .unwrap_or_else(|| {
+                // ...else, send the unit by name:
+                (None, Some(unit.to_owned()))
+            })
     }
 
-    fn slice_end(
-        &self,
-        meta: &tracing::Metadata,
-        track_uuid: ids::TrackUuid,
-        sequence_id: ids::SequenceId,
-        extensions: registry::Extensions,
-    ) {
-        let entered_track_uuid = extensions.get::<ids::TrackUuid>();
-        let track_uuid = *entered_track_uuid.unwrap_or(&track_uuid);
-        let entered_sequence_id = extensions.get::<ids::SequenceId>();
-        let sequence_id = *entered_sequence_id.unwrap_or(&sequence_id);
+    /// For a named unit, try to find an existing proto definition for that
+    /// unit.
+    fn parse_unit(name: &str) -> Option<counter_descriptor::Unit> {
+        match name {
+            "time_ns" | "ns" | "nanos" | "nanoseconds" => Some(counter_descriptor::Unit::TimeNs),
+            "count" | "nr" => Some(counter_descriptor::Unit::Count),
+            "size_bytes" | "bytes" => Some(counter_descriptor::Unit::SizeBytes),
+            _ => None,
+        }
+    }
 
-        let packet = schema::TracePacket {
-            timestamp: Some(ffi::trace_time_ns()),
-            optional_trusted_packet_sequence_id: Some(
-                trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
-                    sequence_id.as_raw(),
-                ),
-            ),
-            data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
-                r#type: Some(track_event::Type::SliceEnd as i32),
-                track_uuid: Some(track_uuid.as_raw()),
-                name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
-                source_location_field: source_location_field(meta),
+    fn source_location_field(meta: &tracing::Metadata) -> Option<track_event::SourceLocationField> {
+        Some(track_event::SourceLocationField::SourceLocation(
+            schema::SourceLocation {
+                file_name: Some(meta.file().unwrap_or("").to_owned()),
+                line_number: Some(meta.line().unwrap_or(0)),
                 ..Default::default()
-            })),
-            ..Default::default()
-        };
-
-        self.ensure_context_known(meta);
-        self.write_packet(meta, packet);
+            },
+        ))
     }
 }
 
@@ -587,7 +674,7 @@ where
         span.extensions_mut().insert(debug_annotations.clone());
 
         if flavor == flavor::Flavor::Async {
-            self.slice_begin(meta, track_uuid, sequence_id, debug_annotations);
+            self.report_slice_begin(meta, track_uuid, sequence_id, debug_annotations);
         }
     }
 
@@ -616,25 +703,10 @@ where
 
         let (track_uuid, sequence_id, _) = self.pick_trace_track_sequence();
 
-        let packet = schema::TracePacket {
-            timestamp: Some(ffi::trace_time_ns()),
-            optional_trusted_packet_sequence_id: Some(
-                trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
-                    sequence_id.as_raw(),
-                ),
-            ),
-            data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
-                r#type: Some(track_event::Type::Instant as i32),
-                track_uuid: Some(track_uuid.as_raw()),
-                name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
-                debug_annotations: debug_annotations.into_proto(),
-                source_location_field: source_location_field(meta),
-                ..Default::default()
-            })),
-            ..Default::default()
-        };
-
         self.ensure_context_known(meta);
+
+        let packet =
+            self.create_event_track_event_packet(meta, debug_annotations, track_uuid, sequence_id);
         self.write_packet(meta, packet);
     }
 
@@ -653,7 +725,7 @@ where
                 .get::<debug_annotations::ProtoDebugAnnotations>()
                 .cloned()
                 .unwrap_or_default();
-            self.slice_begin(meta, track_uuid, sequence_id, debug_annotations);
+            self.report_slice_begin(meta, track_uuid, sequence_id, debug_annotations);
         }
     }
 
@@ -665,7 +737,7 @@ where
         let extensions = span.extensions();
 
         if flavor == flavor::Flavor::Sync {
-            self.slice_end(meta, track_uuid, sequence_id, extensions);
+            self.report_slice_end(meta, track_uuid, sequence_id, extensions);
         }
     }
 
@@ -677,7 +749,7 @@ where
         let extensions = span.extensions();
 
         if flavor == flavor::Flavor::Async {
-            self.slice_end(meta, track_uuid, sequence_id, extensions);
+            self.report_slice_end(meta, track_uuid, sequence_id, extensions);
         }
     }
 }
@@ -853,14 +925,4 @@ fn background_poller_thread<W>(
         }
         thread::sleep(background_poll_interval);
     }
-}
-
-fn source_location_field(meta: &tracing::Metadata) -> Option<track_event::SourceLocationField> {
-    Some(track_event::SourceLocationField::SourceLocation(
-        schema::SourceLocation {
-            file_name: Some(meta.file().unwrap_or("").to_owned()),
-            line_number: Some(meta.line().unwrap_or(0)),
-            ..Default::default()
-        },
-    ))
 }
