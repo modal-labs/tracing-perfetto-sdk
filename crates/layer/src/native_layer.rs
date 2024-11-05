@@ -775,8 +775,10 @@ where
         event.record(&mut debug_annotations);
         self.report_counters(meta, debug_annotations.take_counters());
 
-        let (track_uuid, sequence_id, _) = self.pick_trace_track_sequence();
-        self.report_event(meta, debug_annotations, track_uuid, sequence_id);
+        if !debug_annotations.suppress_event() {
+            let (track_uuid, sequence_id, _) = self.pick_trace_track_sequence();
+            self.report_event(meta, debug_annotations, track_uuid, sequence_id);
+        }
     }
 
     fn on_enter(&self, id: &span::Id, ctx: layer::Context<'_, S>) {

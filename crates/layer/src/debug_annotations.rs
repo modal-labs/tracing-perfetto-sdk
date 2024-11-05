@@ -10,10 +10,12 @@ use tracing_perfetto_sdk_schema::track_event;
 use tracing_perfetto_sdk_sys::ffi;
 
 const COUNTER_FIELD_PREFIX: &str = "counter.";
+const SUPPRESS_EVENT_FIELD: &str = "perfetto.suppress_event";
 
 #[derive(Default)]
 pub struct FFIDebugAnnotations {
     counters: Vec<Counter>,
+    suppress_event: bool,
     strings: Vec<ffi::DebugStringAnnotation>,
     bools: Vec<ffi::DebugBoolAnnotation>,
     ints: Vec<ffi::DebugIntAnnotation>,
@@ -23,6 +25,7 @@ pub struct FFIDebugAnnotations {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProtoDebugAnnotations {
     counters: Vec<Counter>,
+    suppress_event: bool,
     annotations: Vec<schema::DebugAnnotation>,
 }
 
@@ -47,6 +50,10 @@ impl FFIDebugAnnotations {
             ints: self.ints.as_slice(),
             doubles: self.doubles.as_slice(),
         }
+    }
+
+    pub fn suppress_event(&self) -> bool {
+        self.suppress_event
     }
 }
 
@@ -104,10 +111,14 @@ impl field::Visit for FFIDebugAnnotations {
     }
 
     fn record_bool(&mut self, field: &field::Field, value: bool) {
-        self.bools.push(ffi::DebugBoolAnnotation {
-            key: field.name(),
-            value,
-        });
+        if field.name() == SUPPRESS_EVENT_FIELD {
+            self.suppress_event = value;
+        } else {
+            self.bools.push(ffi::DebugBoolAnnotation {
+                key: field.name(),
+                value,
+            });
+        }
     }
 
     fn record_str(&mut self, field: &field::Field, value: &str) {
@@ -139,6 +150,10 @@ impl ProtoDebugAnnotations {
 
     pub fn take_counters(&mut self) -> Vec<Counter> {
         mem::take(&mut self.counters)
+    }
+
+    pub fn suppress_event(&self) -> bool {
+        self.suppress_event
     }
 
     fn name_field(field: &field::Field) -> Option<debug_annotation::NameField> {
@@ -206,11 +221,15 @@ impl field::Visit for ProtoDebugAnnotations {
     }
 
     fn record_bool(&mut self, field: &field::Field, value: bool) {
-        self.annotations.push(schema::DebugAnnotation {
-            name_field: Self::name_field(field),
-            value: Some(debug_annotation::Value::BoolValue(value)),
-            ..Default::default()
-        });
+        if field.name() == SUPPRESS_EVENT_FIELD {
+            self.suppress_event = value;
+        } else {
+            self.annotations.push(schema::DebugAnnotation {
+                name_field: Self::name_field(field),
+                value: Some(debug_annotation::Value::BoolValue(value)),
+                ..Default::default()
+            });
+        }
     }
 
     fn record_str(&mut self, field: &field::Field, value: &str) {

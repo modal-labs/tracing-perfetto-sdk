@@ -91,6 +91,16 @@
 //! **NOTE**: at the time of writing, counters are only implemented by the
 //! [`NativeLayer`].
 //!
+//! ## Suppressing events
+//!
+//! Sometimes, you want to log a tracing event but have it be suppressed in the
+//! Perfetto trace in particular. You can set the `perfetto.suppress_event =
+//! true` field for that to happen:
+//!
+//! ```no_run
+//! tracing::info!(perfetto.suppress_event=true, "won't be included in the Perfetto trace");
+//! ```
+//!
 //! ## Controlling output destinations
 //!
 //! For [`NativeLayer`], traces can be written to anything that implements the

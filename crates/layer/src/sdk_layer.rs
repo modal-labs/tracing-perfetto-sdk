@@ -267,15 +267,17 @@ where
         let mut debug_annotations = debug_annotations::FFIDebugAnnotations::default();
         event.record(&mut debug_annotations);
 
-        let meta = event.metadata();
-        let (track_uuid, _) = self.pick_trace_track();
-        ffi::trace_track_event_instant(
-            track_uuid.as_raw(),
-            meta.name(),
-            meta.file().unwrap_or_default(),
-            meta.line().unwrap_or_default(),
-            &debug_annotations.as_ffi(),
-        );
+        if !debug_annotations.suppress_event() {
+            let meta = event.metadata();
+            let (track_uuid, _) = self.pick_trace_track();
+            ffi::trace_track_event_instant(
+                track_uuid.as_raw(),
+                meta.name(),
+                meta.file().unwrap_or_default(),
+                meta.line().unwrap_or_default(),
+                &debug_annotations.as_ffi(),
+            );
+        }
     }
 
     fn on_enter(&self, id: &span::Id, ctx: layer::Context<'_, S>) {
