@@ -39,6 +39,7 @@ pub struct Builder<'c, W> {
     background_poll_interval: time::Duration,
     force_flavor: Option<flavor::Flavor>,
     delay_slice_begin: bool,
+    discard_tracing_data: bool,
     enable_in_process: bool,
     enable_system: bool,
 }
@@ -64,6 +65,7 @@ where
     drop_poll_timeout: time::Duration,
     force_flavor: Option<flavor::Flavor>,
     delay_slice_begin: bool,
+    discard_tracing_data: bool,
     process_track_uuid: ids::TrackUuid,
     process_descriptor_sent: atomic::AtomicBool,
     // Mutex is held very briefly for member check and to insert a string if it is missing.
@@ -149,6 +151,7 @@ where
 
         let force_flavor = builder.force_flavor;
         let delay_slice_begin = builder.delay_slice_begin;
+        let discard_tracing_data = builder.discard_tracing_data;
         let pid = process::id();
         let process_track_uuid = ids::TrackUuid::for_process(pid);
         let process_descriptor_sent = atomic::AtomicBool::new(false);
@@ -166,6 +169,7 @@ where
             drop_poll_timeout,
             force_flavor,
             delay_slice_begin,
+            discard_tracing_data,
             process_track_uuid,
             process_descriptor_sent,
             counters_sent,
@@ -726,6 +730,10 @@ where
     W: for<'w> fmt::MakeWriter<'w> + Send + Sync + 'static,
 {
     fn on_new_span(&self, attrs: &span::Attributes<'_>, id: &span::Id, ctx: layer::Context<'_, S>) {
+        if self.inner.discard_tracing_data {
+            return;
+        }
+
         let span = ctx.span(id).expect("span to be found (this is a bug)");
         let meta = span.metadata();
 
@@ -753,6 +761,10 @@ where
     }
 
     fn on_record(&self, id: &tracing::Id, values: &span::Record<'_>, ctx: layer::Context<'_, S>) {
+        if self.inner.discard_tracing_data {
+            return;
+        }
+
         let span = ctx.span(id).expect("span to be found (this is a bug)");
         let meta = span.metadata();
 
@@ -770,6 +782,10 @@ where
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: layer::Context<'_, S>) {
+        if self.inner.discard_tracing_data {
+            return;
+        }
+
         let meta = event.metadata();
         let mut debug_annotations = debug_annotations::ProtoDebugAnnotations::default();
         event.record(&mut debug_annotations);
@@ -782,6 +798,10 @@ where
     }
 
     fn on_enter(&self, id: &span::Id, ctx: layer::Context<'_, S>) {
+        if self.inner.discard_tracing_data {
+            return;
+        }
+
         let span = ctx.span(id).expect("span to be found (this is a bug)");
 
         let (track_uuid, sequence_id, flavor) = self.pick_trace_track_sequence();
@@ -801,6 +821,10 @@ where
     }
 
     fn on_exit(&self, id: &tracing::Id, ctx: layer::Context<'_, S>) {
+        if self.inner.discard_tracing_data {
+            return;
+        }
+
         let span = ctx.span(id).expect("span to be found (this is a bug)");
 
         let meta = span.metadata();
@@ -813,6 +837,10 @@ where
     }
 
     fn on_close(&self, id: tracing::Id, ctx: layer::Context<'_, S>) {
+        if self.inner.discard_tracing_data {
+            return;
+        }
+
         let span = ctx.span(&id).expect("span to be found (this is a bug)");
 
         let meta = span.metadata();
@@ -840,6 +868,7 @@ where
             background_poll_interval: time::Duration::from_millis(100),
             force_flavor: None,
             delay_slice_begin: true,
+            discard_tracing_data: false,
             enable_in_process: true,
             enable_system: false,
         }
@@ -859,6 +888,16 @@ where
     /// end will not be reported to the trace at all.
     pub fn with_delay_slice_begin(mut self, delay_slice_begin: bool) -> Self {
         self.delay_slice_begin = delay_slice_begin;
+        self
+    }
+
+    /// Discards all tracing data coming from the `tracing` crate.
+    ///
+    /// This might sound crazy but might make sense if the only purpose of this
+    /// layer is to collect metrics from the Perfetto `traced` daemon and
+    /// re-emit them.
+    pub fn with_discard_tracing_data(mut self, discard_tracing_data: bool) -> Self {
+        self.discard_tracing_data = discard_tracing_data;
         self
     }
 
