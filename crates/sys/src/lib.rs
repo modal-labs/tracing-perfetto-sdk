@@ -165,6 +165,12 @@ pub mod ffi {
         /// clock(s).
         fn trace_time_ns() -> u64;
 
+        /// Get the id of the clock that is used by `trace_time_ns`.
+        ///
+        /// Valid values correspond to enum variants of the `BuiltinClock`
+        /// protobuf enum.
+        fn trace_clock_id() -> u32;
+
         /// Start collecting traces from all data sources.
         fn start(self: Pin<&mut PerfettoTracingSession>);
 
