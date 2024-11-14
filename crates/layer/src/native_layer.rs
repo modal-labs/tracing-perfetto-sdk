@@ -85,6 +85,7 @@ where
 // extension
 struct DelayedSliceBegin {
     timestamp_ns: u64,
+    timestamp_clock_id: u32,
     meta: &'static tracing::Metadata<'static>,
     track_uuid: ids::TrackUuid,
     sequence_id: ids::SequenceId,
@@ -255,6 +256,7 @@ where
     ) {
         let packet = self.create_slice_begin_track_event_packet(
             ffi::trace_time_ns(),
+            ffi::trace_clock_id(),
             meta,
             track_uuid,
             sequence_id,
@@ -287,6 +289,7 @@ where
         if let Some(delayed_slice_begin) = extensions.get::<DelayedSliceBegin>() {
             let slice_begin_packet = self.create_slice_begin_track_event_packet(
                 delayed_slice_begin.timestamp_ns,
+                delayed_slice_begin.timestamp_clock_id,
                 delayed_slice_begin.meta,
                 delayed_slice_begin.track_uuid,
                 delayed_slice_begin.sequence_id,
@@ -298,6 +301,7 @@ where
 
         let packet = self.create_slice_end_track_event_packet(
             ffi::trace_time_ns(),
+            ffi::trace_clock_id(),
             meta,
             track_uuid,
             sequence_id,
@@ -316,6 +320,7 @@ where
     ) {
         let packet = self.create_event_track_event_packet(
             ffi::trace_time_ns(),
+            ffi::trace_clock_id(),
             meta,
             debug_annotations,
             track_uuid,
@@ -328,9 +333,14 @@ where
     fn report_counters(&self, meta: &tracing::Metadata, counters: Vec<debug_annotations::Counter>) {
         if !counters.is_empty() {
             let timestamp_ns = ffi::trace_time_ns();
+            let timestamp_clock_id = ffi::trace_clock_id();
             self.ensure_counters_known(meta, &counters);
             for counter in counters {
-                let packet = self.create_counter_track_event_packet(timestamp_ns, counter);
+                let packet = self.create_counter_track_event_packet(
+                    timestamp_ns,
+                    timestamp_clock_id,
+                    counter,
+                );
                 self.write_packet(meta, packet);
             }
         }
@@ -558,6 +568,7 @@ where
     fn create_slice_begin_track_event_packet(
         &self,
         timestamp_ns: u64,
+        timestamp_clock_id: u32,
         meta: &tracing::Metadata,
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
@@ -565,6 +576,7 @@ where
     ) -> schema::TracePacket {
         schema::TracePacket {
             timestamp: Some(timestamp_ns),
+            timestamp_clock_id: Some(timestamp_clock_id),
             optional_trusted_packet_sequence_id: Some(
                 trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
                     sequence_id.as_raw(),
@@ -586,6 +598,7 @@ where
     fn create_slice_end_track_event_packet(
         &self,
         timestamp_ns: u64,
+        timestamp_clock_id: u32,
         meta: &tracing::Metadata,
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
@@ -593,6 +606,7 @@ where
     ) -> schema::TracePacket {
         schema::TracePacket {
             timestamp: Some(timestamp_ns),
+            timestamp_clock_id: Some(timestamp_clock_id),
             optional_trusted_packet_sequence_id: Some(
                 trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
                     sequence_id.as_raw(),
@@ -614,6 +628,7 @@ where
     fn create_event_track_event_packet(
         &self,
         timestamp_ns: u64,
+        timestamp_clock_id: u32,
         meta: &tracing::Metadata,
         debug_annotations: debug_annotations::ProtoDebugAnnotations,
         track_uuid: ids::TrackUuid,
@@ -621,6 +636,7 @@ where
     ) -> schema::TracePacket {
         schema::TracePacket {
             timestamp: Some(timestamp_ns),
+            timestamp_clock_id: Some(timestamp_clock_id),
             optional_trusted_packet_sequence_id: Some(
                 trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
                     sequence_id.as_raw(),
@@ -642,10 +658,12 @@ where
     fn create_counter_track_event_packet(
         &self,
         timestamp_ns: u64,
+        timestamp_clock_id: u32,
         counter: debug_annotations::Counter,
     ) -> schema::TracePacket {
         schema::TracePacket {
             timestamp: Some(timestamp_ns),
+            timestamp_clock_id: Some(timestamp_clock_id),
             optional_trusted_packet_sequence_id: Some(
                 trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
                     ids::SequenceId::for_counter(counter.name).as_raw(),
@@ -750,6 +768,7 @@ where
             if self.inner.delay_slice_begin {
                 span.extensions_mut().insert(DelayedSliceBegin {
                     timestamp_ns: ffi::trace_time_ns(),
+                    timestamp_clock_id: ffi::trace_clock_id(),
                     meta,
                     track_uuid,
                     sequence_id,

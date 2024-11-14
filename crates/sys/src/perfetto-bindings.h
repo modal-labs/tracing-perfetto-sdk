@@ -63,3 +63,5 @@ void trace_track_descriptor_thread(uint64_t parent_uuid, uint64_t track_uuid,
                                    uint32_t thread_tid);
 
 uint64_t trace_time_ns();
+
+uint32_t trace_clock_id();
