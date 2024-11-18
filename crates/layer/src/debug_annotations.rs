@@ -7,11 +7,13 @@ use schema::debug_annotation;
 use tracing::field;
 use tracing_perfetto_sdk_schema as schema;
 use tracing_perfetto_sdk_schema::track_event;
+#[cfg(feature = "sdk")]
 use tracing_perfetto_sdk_sys::ffi;
 
 const COUNTER_FIELD_PREFIX: &str = "counter.";
 const SUPPRESS_EVENT_FIELD: &str = "perfetto.suppress_event";
 
+#[cfg(feature = "sdk")]
 #[derive(Default)]
 pub struct FFIDebugAnnotations {
     counters: Vec<Counter>,
@@ -42,6 +44,7 @@ pub enum CounterValue {
     Int(i64),
 }
 
+#[cfg(feature = "sdk")]
 impl FFIDebugAnnotations {
     pub fn as_ffi(&self) -> ffi::DebugAnnotations {
         ffi::DebugAnnotations {
@@ -57,6 +60,7 @@ impl FFIDebugAnnotations {
     }
 }
 
+#[cfg(feature = "sdk")]
 impl field::Visit for FFIDebugAnnotations {
     fn record_f64(&mut self, field: &field::Field, value: f64) {
         if !populate_counter(&mut self.counters, field, value) {

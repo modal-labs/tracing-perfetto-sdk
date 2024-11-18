@@ -171,6 +171,7 @@
 
 // Internal modules:
 mod debug_annotations;
+#[cfg(feature = "sdk")]
 mod ffi_utils;
 mod ids;
 mod init;
@@ -179,10 +180,12 @@ mod init;
 pub mod error;
 pub mod flavor;
 pub mod native_layer;
+#[cfg(feature = "sdk")]
 pub mod sdk_layer;
 
 // Convenience re-exports:
 pub use error::Error;
 pub use flavor::Flavor;
 pub use native_layer::NativeLayer;
+#[cfg(feature = "sdk")]
 pub use sdk_layer::SdkLayer;

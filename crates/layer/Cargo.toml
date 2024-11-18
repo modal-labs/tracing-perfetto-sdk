@@ -9,6 +9,7 @@ edition.workspace = true
 [dependencies]
 bytes.workspace = true
 cxx.workspace = true
+nix = { workspace = true, features = ["time"] }
 prost.workspace = true
 thiserror.workspace = true
 thread-id.workspace = true
@@ -16,7 +17,7 @@ thread_local.workspace = true
 tokio = { workspace = true, optional = true }
 tracing.workspace = true
 tracing-perfetto-sdk-schema.workspace = true
-tracing-perfetto-sdk-sys.workspace = true
+tracing-perfetto-sdk-sys = { workspace = true, optional = true }
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
@@ -26,8 +27,10 @@ tokio = { workspace = true, features = ["macros", "time", "rt-multi-thread"] }
 tracing-appender.workspace = true
 
 [features]
+default = ["sdk"]
 tokio = ["dep:tokio"]
 serde = ["tracing-perfetto-sdk-schema/serde"]
+sdk = ["dep:tracing-perfetto-sdk-sys"]
 
 [[example]]
 name = "native-layer"
