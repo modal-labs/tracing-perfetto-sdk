@@ -14,9 +14,9 @@ use tracing_perfetto_sdk_schema::{
 use tracing_perfetto_sdk_sys::ffi;
 use tracing_subscriber::{fmt, layer, registry};
 
-use crate::{debug_annotations, error, flavor, ids, init};
 #[cfg(feature = "sdk")]
 use crate::ffi_utils;
+use crate::{debug_annotations, error, flavor, ids, init};
 
 /// A layer to be used with `tracing-subscriber` that natively writes the
 /// Perfetto trace packets in Rust code, but also polls the Perfetto SDK for
@@ -1003,8 +1003,8 @@ where
         flush_timeout: time::Duration,
         poll_timeout: time::Duration,
     ) -> error::Result<()> {
-
-        #[cfg(feature = "sdk")] {
+        #[cfg(feature = "sdk")]
+        {
             use std::io::Write as _;
 
             let data = ffi_utils::with_session_lock(&*self.ffi_session, |session| {
@@ -1019,7 +1019,8 @@ where
     }
 
     fn stop(&self) -> error::Result<()> {
-        #[cfg(feature = "sdk")] {
+        #[cfg(feature = "sdk")]
+        {
             // Can't use ffi_utils::with_session_lock here because we want to take the
             // session object
             let mut session = self
@@ -1044,36 +1045,60 @@ where
     }
 }
 
-#[cfg(not(feature="sdk"))]
+#[cfg(not(feature = "sdk"))]
 static HAS_BOOTTIME: sync::LazyLock<bool> = sync::LazyLock::new(|| {
-    nix::time::clock_gettime(nix::time::ClockId::CLOCK_BOOTTIME).is_ok()
+    #[cfg(any(linux_android, target_os = "emscripten", target_os = "fuchsia"))]
+    {
+        nix::time::clock_gettime(nix::time::ClockId::CLOCK_BOOTTIME).is_ok()
+    }
+    #[cfg(not(any(linux_android, target_os = "emscripten", target_os = "fuchsia")))]
+    {
+        false
+    }
 });
 
-#[cfg(feature="sdk")]
+#[cfg(feature = "sdk")]
 fn trace_time_ns() -> u64 {
     ffi::trace_time_ns()
 }
 
-#[cfg(not(feature="sdk"))]
+#[cfg(not(feature = "sdk"))]
 fn trace_time_ns() -> u64 {
     use nix::time;
-    if *HAS_BOOTTIME {
-        std::time::Duration::from(time::clock_gettime(time::ClockId::CLOCK_BOOTTIME).unwrap()).as_nanos() as u64
-    } else {
-        std::time::Duration::from(time::clock_gettime(time::ClockId::CLOCK_MONOTONIC).unwrap()).as_nanos() as u64
+    #[cfg(any(linux_android, target_os = "emscripten", target_os = "fuchsia"))]
+    {
+        if *HAS_BOOTTIME {
+            std::time::Duration::from(time::clock_gettime(time::ClockId::CLOCK_BOOTTIME).unwrap())
+                .as_nanos() as u64
+        } else {
+            std::time::Duration::from(time::clock_gettime(time::ClockId::CLOCK_MONOTONIC).unwrap())
+                .as_nanos() as u64
+        }
+    }
+    #[cfg(not(any(linux_android, target_os = "emscripten", target_os = "fuchsia")))]
+    {
+        std::time::Duration::from(time::clock_gettime(time::ClockId::CLOCK_MONOTONIC).unwrap())
+            .as_nanos() as u64
     }
 }
 
-#[cfg(feature="sdk")]
+#[cfg(feature = "sdk")]
 fn trace_clock_id() -> u32 {
     ffi::trace_clock_id()
 }
 
-#[cfg(not(feature="sdk"))]
+#[cfg(not(feature = "sdk"))]
 fn trace_clock_id() -> u32 {
-    if *HAS_BOOTTIME {
-        schema::BuiltinClock::Boottime as u32
-    } else {
+    #[cfg(any(linux_android, target_os = "emscripten", target_os = "fuchsia"))]
+    {
+        if *HAS_BOOTTIME {
+            schema::BuiltinClock::Boottime as u32
+        } else {
+            schema::BuiltinClock::Monotonic as u32
+        }
+    }
+    #[cfg(not(any(linux_android, target_os = "emscripten", target_os = "fuchsia")))]
+    {
         schema::BuiltinClock::Monotonic as u32
     }
 }
