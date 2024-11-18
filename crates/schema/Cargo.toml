@@ -7,12 +7,16 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-pbjson.workspace = true
-pbjson-types.workspace = true
+pbjson = { workspace = true, optional = true }
+pbjson-types = { workspace = true, optional = true }
 prost.workspace = true
-serde.workspace = true
+prost-types.workspace = true
+serde = { workspace = true, optional = true }
 
 [build-dependencies]
 anyhow.workspace = true
-pbjson-build.workspace = true
+pbjson-build = { workspace = true, optional = true }
 prost-build.workspace = true
+
+[features]
+serde = ["dep:pbjson", "dep:pbjson-types", "dep:pbjson-build", "dep:serde"]
