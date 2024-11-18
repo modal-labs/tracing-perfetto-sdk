@@ -3,13 +3,13 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 
 [workspace.dependencies]
-tracing-perfetto-sdk-layer = { version = "0.10.0", path = "crates/layer" }
-tracing-perfetto-sdk-schema = { version = "0.10.0", path = "crates/schema" }
-tracing-perfetto-sdk-sys = { version = "0.10.0", path = "crates/sys" }
+tracing-perfetto-sdk-layer = { version = "0.10.1", path = "crates/layer" }
+tracing-perfetto-sdk-schema = { version = "0.10.1", path = "crates/schema" }
+tracing-perfetto-sdk-sys = { version = "0.10.1", path = "crates/sys" }
 
 anyhow = "1.0.90"
 bytes = "1.8.0"
