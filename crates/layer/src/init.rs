@@ -1,6 +1,9 @@
+#[cfg(feature = "sdk")]
 use tracing_perfetto_sdk_sys::ffi;
 
+#[allow(unused_variables)]
 pub fn global_init(enable_in_process_backend: bool, enable_system_backend: bool) {
+    #[cfg(feature = "sdk")]
     ffi::perfetto_global_init(
         log_callback,
         enable_in_process_backend,
@@ -8,6 +11,7 @@ pub fn global_init(enable_in_process_backend: bool, enable_system_backend: bool)
     );
 }
 
+#[cfg(feature = "sdk")]
 fn log_callback(level: ffi::LogLev, line: i32, filename: &str, message: &str) {
     match level {
         ffi::LogLev::Debug => {

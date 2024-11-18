@@ -16,6 +16,7 @@ bytes = "1.8.0"
 cxx = { version = "1.0.129", features = ["c++17"] }
 cxx-build = { version = "1.0.129", features = ["parallel"] }
 futures = "0.3.31"
+nix =  "0.29.0"
 pbjson = "0.6.0"
 pbjson-build = "0.6.2"
 pbjson-types = "0.6.0"

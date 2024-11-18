@@ -1,6 +1,6 @@
 //! The main tracing layer and related utils exposed by this crate.
 use std::sync::atomic;
-use std::{borrow, cell, env, process, sync, thread, time};
+use std::{borrow, cell, env, marker, process, sync, thread, time};
 
 use prost::encoding;
 #[cfg(feature = "tokio")]
@@ -10,10 +10,13 @@ use tracing_perfetto_sdk_schema as schema;
 use tracing_perfetto_sdk_schema::{
     counter_descriptor, trace_packet, track_descriptor, track_event,
 };
+#[cfg(feature = "sdk")]
 use tracing_perfetto_sdk_sys::ffi;
 use tracing_subscriber::{fmt, layer, registry};
 
-use crate::{debug_annotations, error, ffi_utils, flavor, ids, init};
+use crate::{debug_annotations, error, flavor, ids, init};
+#[cfg(feature = "sdk")]
+use crate::ffi_utils;
 
 /// A layer to be used with `tracing-subscriber` that natively writes the
 /// Perfetto trace packets in Rust code, but also polls the Perfetto SDK for
@@ -30,6 +33,7 @@ where
 /// A builder for [`NativeLayer`]; use [`NativeLayer::from_config`] or
 /// [`NativeLayer::from_config_bytes`] to create a new instance.
 pub struct Builder<'c, W> {
+    #[cfg(feature = "sdk")]
     config_bytes: borrow::Cow<'c, [u8]>,
     writer: W,
     drop_flush_timeout: time::Duration,
@@ -42,6 +46,7 @@ pub struct Builder<'c, W> {
     discard_tracing_data: bool,
     enable_in_process: bool,
     enable_system: bool,
+    _phantom: marker::PhantomData<&'c ()>,
 }
 
 #[derive(Default)]
@@ -59,6 +64,7 @@ where
     W: for<'w> fmt::MakeWriter<'w>,
 {
     // Mutex is held during start, stop, flush, and poll
+    #[cfg(feature = "sdk")]
     ffi_session: sync::Arc<sync::Mutex<Option<cxx::UniquePtr<ffi::PerfettoTracingSession>>>>,
     writer: sync::Arc<W>,
     drop_flush_timeout: time::Duration,
@@ -123,32 +129,36 @@ where
         // Shared global initialization for all layers
         init::global_init(builder.enable_in_process, builder.enable_system);
 
+        let writer = sync::Arc::new(builder.writer);
+
         // We send the config to the C++ code as encoded bytes, because it would be too
         // annoying to have some sort of shared proto struct between the Rust
         // and C++ worlds
-        let mut ffi_session = ffi::new_tracing_session(builder.config_bytes.as_ref(), -1)?;
-        ffi_session.pin_mut().start();
-        let ffi_session = sync::Arc::new(sync::Mutex::new(Some(ffi_session)));
+        #[cfg(feature = "sdk")]
+        let ffi_session = {
+            let mut ffi_session = ffi::new_tracing_session(builder.config_bytes.as_ref(), -1)?;
+            ffi_session.pin_mut().start();
+            let ffi_session = sync::Arc::new(sync::Mutex::new(Some(ffi_session)));
 
-        let writer = sync::Arc::new(builder.writer);
+            let thread_ffi_session = sync::Arc::clone(&ffi_session);
+            let thread_writer = sync::Arc::clone(&writer);
+
+            thread::Builder::new()
+                .name("tracing-perfetto-poller".to_owned())
+                .spawn(move || {
+                    background_poller_thread(
+                        thread_ffi_session,
+                        thread_writer,
+                        builder.background_flush_timeout,
+                        builder.background_poll_timeout,
+                        builder.background_poll_interval,
+                    )
+                })?;
+            ffi_session
+        };
 
         let drop_flush_timeout = builder.drop_flush_timeout;
         let drop_poll_timeout = builder.drop_poll_timeout;
-
-        let thread_ffi_session = sync::Arc::clone(&ffi_session);
-        let thread_writer = sync::Arc::clone(&writer);
-
-        thread::Builder::new()
-            .name("tracing-perfetto-poller".to_owned())
-            .spawn(move || {
-                background_poller_thread(
-                    thread_ffi_session,
-                    thread_writer,
-                    builder.background_flush_timeout,
-                    builder.background_poll_timeout,
-                    builder.background_poll_interval,
-                )
-            })?;
 
         let force_flavor = builder.force_flavor;
         let delay_slice_begin = builder.delay_slice_begin;
@@ -164,6 +174,7 @@ where
         let thread_local_ctxs = thread_local::ThreadLocal::new();
 
         let inner = sync::Arc::new(Inner {
+            #[cfg(feature = "sdk")]
             ffi_session,
             writer,
             drop_flush_timeout,
@@ -255,8 +266,8 @@ where
         debug_annotations: debug_annotations::ProtoDebugAnnotations,
     ) {
         let packet = self.create_slice_begin_track_event_packet(
-            ffi::trace_time_ns(),
-            ffi::trace_clock_id(),
+            trace_time_ns(),
+            trace_clock_id(),
             meta,
             track_uuid,
             sequence_id,
@@ -300,8 +311,8 @@ where
         }
 
         let packet = self.create_slice_end_track_event_packet(
-            ffi::trace_time_ns(),
-            ffi::trace_clock_id(),
+            trace_time_ns(),
+            trace_clock_id(),
             meta,
             track_uuid,
             sequence_id,
@@ -319,8 +330,8 @@ where
         sequence_id: ids::SequenceId,
     ) {
         let packet = self.create_event_track_event_packet(
-            ffi::trace_time_ns(),
-            ffi::trace_clock_id(),
+            trace_time_ns(),
+            trace_clock_id(),
             meta,
             debug_annotations,
             track_uuid,
@@ -332,8 +343,8 @@ where
 
     fn report_counters(&self, meta: &tracing::Metadata, counters: Vec<debug_annotations::Counter>) {
         if !counters.is_empty() {
-            let timestamp_ns = ffi::trace_time_ns();
-            let timestamp_clock_id = ffi::trace_clock_id();
+            let timestamp_ns = trace_time_ns();
+            let timestamp_clock_id = trace_clock_id();
             self.ensure_counters_known(meta, &counters);
             for counter in counters {
                 let packet = self.create_counter_track_event_packet(
@@ -767,8 +778,8 @@ where
         if flavor == flavor::Flavor::Async {
             if self.inner.delay_slice_begin {
                 span.extensions_mut().insert(DelayedSliceBegin {
-                    timestamp_ns: ffi::trace_time_ns(),
-                    timestamp_clock_id: ffi::trace_clock_id(),
+                    timestamp_ns: trace_time_ns(),
+                    timestamp_clock_id: trace_clock_id(),
                     meta,
                     track_uuid,
                     sequence_id,
@@ -876,8 +887,10 @@ impl<'c, W> Builder<'c, W>
 where
     W: for<'w> fmt::MakeWriter<'w> + Send + Sync + 'static,
 {
+    #[allow(unused_variables)]
     fn new(config_bytes: borrow::Cow<'c, [u8]>, writer: W) -> Self {
         Self {
+            #[cfg(feature = "sdk")]
             config_bytes,
             writer,
             drop_flush_timeout: time::Duration::from_millis(100),
@@ -890,6 +903,7 @@ where
             discard_tracing_data: false,
             enable_in_process: true,
             enable_system: false,
+            _phantom: marker::PhantomData,
         }
     }
 
@@ -983,30 +997,38 @@ impl<W> Inner<W>
 where
     W: for<'w> fmt::MakeWriter<'w>,
 {
+    #[allow(unused_variables)]
     fn flush(
         &self,
         flush_timeout: time::Duration,
         poll_timeout: time::Duration,
     ) -> error::Result<()> {
-        use std::io::Write as _;
-        let data = ffi_utils::with_session_lock(&*self.ffi_session, |session| {
-            ffi_utils::do_flush(session, flush_timeout)?;
-            let data = ffi_utils::do_poll_traces(session, poll_timeout)?;
-            Ok(data)
-        })?;
-        self.writer.make_writer().write_all(&*data.data)?;
+
+        #[cfg(feature = "sdk")] {
+            use std::io::Write as _;
+
+            let data = ffi_utils::with_session_lock(&*self.ffi_session, |session| {
+                ffi_utils::do_flush(session, flush_timeout)?;
+                let data = ffi_utils::do_poll_traces(session, poll_timeout)?;
+                Ok(data)
+            })?;
+            self.writer.make_writer().write_all(&*data.data)?;
+        }
+
         Ok(())
     }
 
     fn stop(&self) -> error::Result<()> {
-        // Can't use ffi_utils::with_session_lock here because we want to take the
-        // session object
-        let mut session = self
-            .ffi_session
-            .lock()
-            .map_err(|_| error::Error::PoisonedMutex)?;
-        if let Some(mut session) = session.take() {
-            session.pin_mut().stop();
+        #[cfg(feature = "sdk")] {
+            // Can't use ffi_utils::with_session_lock here because we want to take the
+            // session object
+            let mut session = self
+                .ffi_session
+                .lock()
+                .map_err(|_| error::Error::PoisonedMutex)?;
+            if let Some(mut session) = session.take() {
+                session.pin_mut().stop();
+            }
         }
         Ok(())
     }
@@ -1022,6 +1044,41 @@ where
     }
 }
 
+#[cfg(not(feature="sdk"))]
+static HAS_BOOTTIME: sync::LazyLock<bool> = sync::LazyLock::new(|| {
+    nix::time::clock_gettime(nix::time::ClockId::CLOCK_BOOTTIME).is_ok()
+});
+
+#[cfg(feature="sdk")]
+fn trace_time_ns() -> u64 {
+    ffi::trace_time_ns()
+}
+
+#[cfg(not(feature="sdk"))]
+fn trace_time_ns() -> u64 {
+    use nix::time;
+    if *HAS_BOOTTIME {
+        std::time::Duration::from(time::clock_gettime(time::ClockId::CLOCK_BOOTTIME).unwrap()).as_nanos() as u64
+    } else {
+        std::time::Duration::from(time::clock_gettime(time::ClockId::CLOCK_MONOTONIC).unwrap()).as_nanos() as u64
+    }
+}
+
+#[cfg(feature="sdk")]
+fn trace_clock_id() -> u32 {
+    ffi::trace_clock_id()
+}
+
+#[cfg(not(feature="sdk"))]
+fn trace_clock_id() -> u32 {
+    if *HAS_BOOTTIME {
+        schema::BuiltinClock::Boottime as u32
+    } else {
+        schema::BuiltinClock::Monotonic as u32
+    }
+}
+
+#[cfg(feature = "sdk")]
 fn background_poller_thread<W>(
     ffi_session: sync::Arc<sync::Mutex<Option<cxx::UniquePtr<ffi::PerfettoTracingSession>>>>,
     writer: sync::Arc<W>,
