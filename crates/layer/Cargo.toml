@@ -27,3 +27,20 @@ tracing-appender.workspace = true
 
 [features]
 tokio = ["dep:tokio"]
+serde = ["tracing-perfetto-sdk-schema/serde"]
+
+[[example]]
+name = "native-layer"
+required-features = ["serde"]
+
+[[example]]
+name = "perfetto-dump-trace"
+required-features = ["serde"]
+
+[[example]]
+name = "sdk-layer"
+required-features = ["serde"]
+
+[[test]]
+name = "kitchen_sink"
+required-features = ["serde"]
