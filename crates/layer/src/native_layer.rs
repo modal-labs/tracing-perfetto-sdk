@@ -1,6 +1,6 @@
 //! The main tracing layer and related utils exposed by this crate.
 use std::sync::atomic;
-use std::{borrow, cell, env, marker, process, sync, thread, time};
+use std::{borrow, cell, env, marker, mem, process, sync, thread, time};
 
 use prost::encoding;
 #[cfg(feature = "tokio")]
@@ -774,9 +774,9 @@ where
         attrs.record(&mut debug_annotations);
         self.report_counters(meta, debug_annotations.take_counters());
 
-        span.extensions_mut().insert(debug_annotations.clone());
         if flavor == flavor::Flavor::Async {
             if self.inner.delay_slice_begin {
+                span.extensions_mut().insert(debug_annotations);
                 span.extensions_mut().insert(DelayedSliceBegin {
                     timestamp_ns: trace_time_ns(),
                     timestamp_clock_id: trace_clock_id(),
@@ -842,9 +842,9 @@ where
             span.extensions_mut().replace(sequence_id);
 
             let debug_annotations = span
-                .extensions()
-                .get::<debug_annotations::ProtoDebugAnnotations>()
-                .cloned()
+                .extensions_mut()
+                .get_mut::<debug_annotations::ProtoDebugAnnotations>()
+                .map(mem::take)
                 .unwrap_or_default();
             self.report_slice_begin(meta, track_uuid, sequence_id, debug_annotations);
         }
