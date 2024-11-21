@@ -899,7 +899,7 @@ where
             background_poll_timeout: time::Duration::from_millis(100),
             background_poll_interval: time::Duration::from_millis(100),
             force_flavor: None,
-            delay_slice_begin: true,
+            delay_slice_begin: false,
             discard_tracing_data: false,
             enable_in_process: true,
             enable_system: false,
