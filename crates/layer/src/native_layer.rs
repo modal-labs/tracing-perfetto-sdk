@@ -504,7 +504,7 @@ where
                     uuid: Some(ids::TrackUuid::for_thread(thread_id).as_raw()),
                     thread: Some(schema::ThreadDescriptor {
                         pid: Some(process::id() as i32),
-                        tid: Some(thread_id as i32),
+                        tid: Some((thread_id as i32).saturating_abs()),
                         thread_name: Some(thread_name.clone()),
                         ..Default::default()
                     }),
