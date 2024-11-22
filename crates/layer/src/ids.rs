@@ -39,6 +39,13 @@ impl TrackUuid {
     }
 
     #[cfg(feature = "tokio")]
+    pub fn for_task(id: task::Id) -> TrackUuid {
+        let mut h = hash::DefaultHasher::new();
+        (TRACK_UUID_NS, TASK_NS, id).hash(&mut h);
+        TrackUuid(h.finish())
+    }
+
+    #[cfg(feature = "tokio")]
     pub fn for_tokio() -> TrackUuid {
         let mut h = hash::DefaultHasher::new();
         (TRACK_UUID_NS, TOKIO_NS).hash(&mut h);
@@ -66,7 +73,7 @@ impl SequenceId {
     #[cfg(feature = "tokio")]
     pub fn for_task(id: task::Id) -> SequenceId {
         let mut h = hash::DefaultHasher::new();
-        (TRACK_UUID_NS, TASK_NS, id).hash(&mut h);
+        (SEQUENCE_ID_NS, TASK_NS, id).hash(&mut h);
         SequenceId(h.finish() as u32)
     }
 

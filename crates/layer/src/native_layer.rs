@@ -1,6 +1,6 @@
 //! The main tracing layer and related utils exposed by this crate.
 use std::sync::atomic;
-use std::{borrow, cell, env, marker, mem, process, sync, thread, time};
+use std::{borrow, env, marker, mem, process, sync, thread, time};
 
 use prost::encoding;
 #[cfg(feature = "tokio")]
@@ -44,19 +44,10 @@ pub struct Builder<'c, W> {
     force_flavor: Option<flavor::Flavor>,
     delay_slice_begin: bool,
     discard_tracing_data: bool,
+    create_async_tracks: Option<String>,
     enable_in_process: bool,
     enable_system: bool,
     _phantom: marker::PhantomData<&'c ()>,
-}
-
-#[derive(Default)]
-struct ThreadLocalCtx {
-    descriptor_sent: atomic::AtomicBool,
-    // We probably don't need a fancy data structure like `HashSet` or similar because this is
-    // expected to contain a small (<100 entries) set of short (<20 chars) strings, and they are
-    // all static (meaning high CPU cache coherence), so a linear scan + equals check is probably
-    // faster than hashing strings etc.
-    counters_sent_cache: cell::RefCell<Option<Vec<&'static str>>>,
 }
 
 struct Inner<W>
@@ -72,19 +63,17 @@ where
     force_flavor: Option<flavor::Flavor>,
     delay_slice_begin: bool,
     discard_tracing_data: bool,
+    create_async_tracks: Option<String>,
     process_track_uuid: ids::TrackUuid,
     process_descriptor_sent: atomic::AtomicBool,
-    // Mutex is held very briefly for member check and to insert a string if it is missing.
-    // We probably don't need a fancy data structure like `HashSet` or similar because this is
-    // expected to contain a small (<100 entries) set of short (<20 chars) strings, and they are
-    // all static (meaning high CPU cache coherence), so a linear scan + equals check is probably
-    // faster than hashing strings etc.
-    counters_sent: sync::Mutex<Vec<&'static str>>,
     #[cfg(feature = "tokio")]
     tokio_descriptor_sent: atomic::AtomicBool,
     #[cfg(feature = "tokio")]
     tokio_track_uuid: ids::TrackUuid,
-    thread_local_ctxs: thread_local::ThreadLocal<ThreadLocalCtx>,
+    counter_tracks_sent: dashmap::DashSet<&'static str>,
+    thread_tracks_sent: dashmap::DashSet<usize>,
+    #[cfg(feature = "tokio")]
+    task_tracks_sent: dashmap::DashSet<task::Id>,
 }
 
 // Does not contain DebugAnnotations; they are shipped separately as a span
@@ -163,15 +152,18 @@ where
         let force_flavor = builder.force_flavor;
         let delay_slice_begin = builder.delay_slice_begin;
         let discard_tracing_data = builder.discard_tracing_data;
+        let create_async_tracks = builder.create_async_tracks;
         let pid = process::id();
         let process_track_uuid = ids::TrackUuid::for_process(pid);
         let process_descriptor_sent = atomic::AtomicBool::new(false);
-        let counters_sent = sync::Mutex::new(Vec::new());
         #[cfg(feature = "tokio")]
         let tokio_descriptor_sent = atomic::AtomicBool::new(false);
         #[cfg(feature = "tokio")]
         let tokio_track_uuid = ids::TrackUuid::for_tokio();
-        let thread_local_ctxs = thread_local::ThreadLocal::new();
+        let counter_tracks_sent = dashmap::DashSet::new();
+        let thread_tracks_sent = dashmap::DashSet::new();
+        #[cfg(feature = "tokio")]
+        let task_tracks_sent = dashmap::DashSet::new();
 
         let inner = sync::Arc::new(Inner {
             #[cfg(feature = "sdk")]
@@ -182,14 +174,17 @@ where
             force_flavor,
             delay_slice_begin,
             discard_tracing_data,
+            create_async_tracks,
             process_track_uuid,
             process_descriptor_sent,
-            counters_sent,
             #[cfg(feature = "tokio")]
             tokio_descriptor_sent,
             #[cfg(feature = "tokio")]
             tokio_track_uuid,
-            thread_local_ctxs,
+            counter_tracks_sent,
+            thread_tracks_sent,
+            #[cfg(feature = "tokio")]
+            task_tracks_sent,
         });
 
         Ok(Self { inner })
@@ -208,17 +203,20 @@ where
                 }
                 flavor::Flavor::Async => {
                     #[cfg(feature = "tokio")]
-                    if let Some(id) = task::try_id() {
-                        return (
-                            self.inner.process_track_uuid,
-                            ids::SequenceId::for_task(id),
-                            flavor::Flavor::Async,
-                        );
+                    if let Some(res) =
+                        self.tokio_trace_track_sequence(self.inner.process_track_uuid)
+                    {
+                        return res;
                     }
 
                     let tid = thread_id::get();
+                    let track_uuid = if self.inner.create_async_tracks.is_some() {
+                        ids::TrackUuid::for_thread(tid)
+                    } else {
+                        self.inner.process_track_uuid
+                    };
                     (
-                        self.inner.process_track_uuid,
+                        track_uuid,
                         ids::SequenceId::for_thread(tid),
                         flavor::Flavor::Async,
                     )
@@ -226,12 +224,8 @@ where
             }
         } else {
             #[cfg(feature = "tokio")]
-            if let Some(id) = task::try_id() {
-                return (
-                    self.inner.tokio_track_uuid,
-                    ids::SequenceId::for_task(id),
-                    flavor::Flavor::Async,
-                );
+            if let Some(res) = self.tokio_trace_track_sequence(self.inner.tokio_track_uuid) {
+                return res;
             }
 
             let tid = thread_id::get();
@@ -241,6 +235,25 @@ where
                 flavor::Flavor::Sync,
             )
         }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn tokio_trace_track_sequence(
+        &self,
+        default_track: ids::TrackUuid,
+    ) -> Option<(ids::TrackUuid, ids::SequenceId, flavor::Flavor)> {
+        let id = task::try_id()?;
+        let track_uuid = if self.inner.create_async_tracks.is_some() {
+            ids::TrackUuid::for_task(id)
+        } else {
+            default_track
+        };
+
+        Some((
+            track_uuid,
+            ids::SequenceId::for_task(id),
+            flavor::Flavor::Async,
+        ))
     }
 
     /// Flush internal buffers, making the best effort for all pending writes to
@@ -361,7 +374,11 @@ where
         self.ensure_process_known(meta);
         self.ensure_thread_known(meta);
         #[cfg(feature = "tokio")]
-        self.ensure_tokio_runtime_known(meta);
+        if let Some(ref name) = self.inner.create_async_tracks {
+            self.ensure_task_track_known(meta, name);
+        } else {
+            self.ensure_tokio_runtime_known(meta);
+        }
     }
 
     fn ensure_process_known(&self, meta: &tracing::Metadata) {
@@ -387,17 +404,17 @@ where
     }
 
     fn ensure_thread_known(&self, meta: &tracing::Metadata) {
-        let thread_local_ctx = self.inner.thread_local_ctxs.get_or(ThreadLocalCtx::default);
-        let thread_descriptor_sent = thread_local_ctx
-            .descriptor_sent
-            .fetch_or(true, atomic::Ordering::Relaxed);
-        if !thread_descriptor_sent {
-            let thread_id = thread_id::get();
+        let thread_id = thread_id::get();
+        if self.inner.thread_tracks_sent.insert(thread_id) {
             let thread_name = thread::current()
                 .name()
                 .map(|s| s.to_owned())
                 .unwrap_or_else(|| format!("(unnamed thread {thread_id})"));
-            let packet = self.create_thread_track_descriptor(thread_id, thread_name);
+            let packet = if let Some(ref name) = self.inner.create_async_tracks {
+                self.create_thread_track_descriptor(thread_id, name.to_owned(), false)
+            } else {
+                self.create_thread_track_descriptor(thread_id, thread_name, true)
+            };
             self.write_packet(meta, packet);
         }
     }
@@ -414,54 +431,26 @@ where
         }
     }
 
+    #[cfg(feature = "tokio")]
+    fn ensure_task_track_known(&self, meta: &tracing::Metadata, name: &str) {
+        if let Some(task_id) = task::try_id() {
+            if self.inner.task_tracks_sent.insert(task_id) {
+                let packet = self.create_task_track_descriptor(task_id, name.to_owned());
+                self.write_packet(meta, packet);
+            }
+        }
+    }
+
     fn ensure_counters_known(
         &self,
         meta: &tracing::Metadata,
         counters: &[debug_annotations::Counter],
     ) {
-        let thread_local_ctx = self.inner.thread_local_ctxs.get_or(ThreadLocalCtx::default);
-        if let Ok(mut counters_sent_cache) = thread_local_ctx.counters_sent_cache.try_borrow_mut() {
-            let counters_sent_cache = counters_sent_cache.get_or_insert_with(|| {
-                self.inner
-                    .counters_sent
-                    .lock()
-                    .map(|cs| cs.clone())
-                    .unwrap_or_default()
-            });
-            if counters
-                .iter()
-                .all(|c| counters_sent_cache.contains(&c.name))
-            {
-                return;
+        for counter in counters {
+            if self.inner.counter_tracks_sent.insert(counter.name) {
+                let packet = self.create_counter_track_descriptor(counter);
+                self.write_packet(meta, packet);
             }
-        }
-
-        // This might seem wasteful, but we want to minimize the time that we hold the
-        // `counters_sent` mutex, and we can report the counters after we have released
-        // the lock.  Also remember that `Vec::new()` does not allocate until the first
-        // push!
-        let mut new_counters = Vec::new();
-
-        // Skip counters entirely if Mutex is poisoned -- can't afford to panic here
-        if let Ok(mut counters_sent) = self.inner.counters_sent.lock() {
-            for counter in counters {
-                if !counters_sent.contains(&counter.name) {
-                    new_counters.push(counter);
-                    counters_sent.push(counter.name);
-                }
-            }
-            if !new_counters.is_empty() {
-                if let Ok(mut counters_sent_cache) =
-                    thread_local_ctx.counters_sent_cache.try_borrow_mut()
-                {
-                    *counters_sent_cache = Some((*counters_sent).clone());
-                }
-            }
-        }
-
-        for counter in new_counters {
-            let packet = self.create_counter_track_descriptor(counter);
-            self.write_packet(meta, packet);
         }
     }
 
@@ -496,18 +485,24 @@ where
         &self,
         thread_id: usize,
         thread_name: String,
+        include_thread_metadata: bool,
     ) -> schema::TracePacket {
+        let thread = if include_thread_metadata {
+            Some(schema::ThreadDescriptor {
+                pid: Some(process::id() as i32),
+                tid: Some((thread_id as i32).saturating_abs()),
+                thread_name: Some(thread_name.clone()),
+                ..Default::default()
+            })
+        } else {
+            None
+        };
         schema::TracePacket {
             data: Some(trace_packet::Data::TrackDescriptor(
                 schema::TrackDescriptor {
                     parent_uuid: Some(self.inner.process_track_uuid.as_raw()),
                     uuid: Some(ids::TrackUuid::for_thread(thread_id).as_raw()),
-                    thread: Some(schema::ThreadDescriptor {
-                        pid: Some(process::id() as i32),
-                        tid: Some((thread_id as i32).saturating_abs()),
-                        thread_name: Some(thread_name.clone()),
-                        ..Default::default()
-                    }),
+                    thread,
                     static_or_dynamic_name: Some(track_descriptor::StaticOrDynamicName::Name(
                         thread_name,
                     )),
@@ -536,6 +531,29 @@ where
                     }),
                     static_or_dynamic_name: Some(track_descriptor::StaticOrDynamicName::Name(
                         "tokio-runtime".to_owned(),
+                    )),
+                    ..Default::default()
+                },
+            )),
+            ..Default::default()
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    #[must_use]
+    fn create_task_track_descriptor(&self, task_id: task::Id, name: String) -> schema::TracePacket {
+        let parent_uuid = if self.inner.force_flavor == Some(flavor::Flavor::Async) {
+            self.inner.process_track_uuid
+        } else {
+            self.inner.tokio_track_uuid
+        };
+        schema::TracePacket {
+            data: Some(trace_packet::Data::TrackDescriptor(
+                schema::TrackDescriptor {
+                    parent_uuid: Some(parent_uuid.as_raw()),
+                    uuid: Some(ids::TrackUuid::for_task(task_id).as_raw()),
+                    static_or_dynamic_name: Some(track_descriptor::StaticOrDynamicName::Name(
+                        name.to_owned(),
                     )),
                     ..Default::default()
                 },
@@ -901,6 +919,7 @@ where
             force_flavor: None,
             delay_slice_begin: false,
             discard_tracing_data: false,
+            create_async_tracks: None,
             enable_in_process: true,
             enable_system: false,
             _phantom: marker::PhantomData,
@@ -931,6 +950,20 @@ where
     /// re-emit them.
     pub fn with_discard_tracing_data(mut self, discard_tracing_data: bool) -> Self {
         self.discard_tracing_data = discard_tracing_data;
+        self
+    }
+
+    /// Creates a separate track in the Perfetto UI for every "thread" even in
+    /// async mode. This means there will be a separate "track" for each OS
+    /// thread *and* Tokio task, but they will be light-weight tracks without as
+    /// much info as a thread track would have. Instead, all of these tracks
+    /// will have the specified name.
+    ///
+    /// This makes it easier for Perfetto to keep the necessary context window
+    /// per track for some async events to not get dropped. However, the
+    /// trade-off is some data inflation and a laggier UI as a result.
+    pub fn with_create_async_tracks(mut self, create_async_tracks: Option<String>) -> Self {
+        self.create_async_tracks = create_async_tracks;
         self
     }
 
@@ -1047,11 +1080,21 @@ where
 
 #[cfg(not(feature = "sdk"))]
 static HAS_BOOTTIME: sync::LazyLock<bool> = sync::LazyLock::new(|| {
-    #[cfg(any(linux_android, target_os = "emscripten", target_os = "fuchsia"))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "emscripten",
+        target_os = "fuchsia"
+    ))]
     {
         nix::time::clock_gettime(nix::time::ClockId::CLOCK_BOOTTIME).is_ok()
     }
-    #[cfg(not(any(linux_android, target_os = "emscripten", target_os = "fuchsia")))]
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "emscripten",
+        target_os = "fuchsia"
+    )))]
     {
         false
     }
@@ -1065,7 +1108,12 @@ fn trace_time_ns() -> u64 {
 #[cfg(not(feature = "sdk"))]
 fn trace_time_ns() -> u64 {
     use nix::time;
-    #[cfg(any(linux_android, target_os = "emscripten", target_os = "fuchsia"))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "emscripten",
+        target_os = "fuchsia"
+    ))]
     {
         if *HAS_BOOTTIME {
             std::time::Duration::from(time::clock_gettime(time::ClockId::CLOCK_BOOTTIME).unwrap())
@@ -1075,7 +1123,12 @@ fn trace_time_ns() -> u64 {
                 .as_nanos() as u64
         }
     }
-    #[cfg(not(any(linux_android, target_os = "emscripten", target_os = "fuchsia")))]
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "emscripten",
+        target_os = "fuchsia"
+    )))]
     {
         std::time::Duration::from(time::clock_gettime(time::ClockId::CLOCK_MONOTONIC).unwrap())
             .as_nanos() as u64
@@ -1089,7 +1142,12 @@ fn trace_clock_id() -> u32 {
 
 #[cfg(not(feature = "sdk"))]
 fn trace_clock_id() -> u32 {
-    #[cfg(any(linux_android, target_os = "emscripten", target_os = "fuchsia"))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "emscripten",
+        target_os = "fuchsia"
+    ))]
     {
         if *HAS_BOOTTIME {
             schema::BuiltinClock::Boottime as u32
@@ -1097,7 +1155,12 @@ fn trace_clock_id() -> u32 {
             schema::BuiltinClock::Monotonic as u32
         }
     }
-    #[cfg(not(any(linux_android, target_os = "emscripten", target_os = "fuchsia")))]
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "emscripten",
+        target_os = "fuchsia"
+    )))]
     {
         schema::BuiltinClock::Monotonic as u32
     }

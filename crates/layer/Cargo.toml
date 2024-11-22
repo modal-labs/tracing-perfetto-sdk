@@ -9,6 +9,7 @@ edition.workspace = true
 [dependencies]
 bytes.workspace = true
 cxx.workspace = true
+dashmap.workspace = true
 nix = { workspace = true, features = ["time"] }
 prost.workspace = true
 thiserror.workspace = true
