@@ -1062,7 +1062,7 @@ dependencies = [
 
 [[package]]
 name = "tracing-perfetto-sdk-layer"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "tracing-perfetto-sdk-schema"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "pbjson",
@@ -1098,7 +1098,7 @@ dependencies = [
 
 [[package]]
 name = "tracing-perfetto-sdk-sys"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "bytes",
