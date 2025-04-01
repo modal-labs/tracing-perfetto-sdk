@@ -1,4 +1,5 @@
 //! The main tracing layer and related utils exposed by this crate.
+use super::utils::*;
 use std::sync::atomic;
 use std::{borrow, env, marker, mem, process, sync, thread, time};
 
@@ -194,7 +195,7 @@ where
         if let Some(flavor) = self.inner.force_flavor.as_ref() {
             match *flavor {
                 flavor::Flavor::Sync => {
-                    let tid = thread_id::get();
+                    let tid = get_os_thread_id();
                     (
                         self.inner.process_track_uuid,
                         ids::SequenceId::for_thread(tid),
@@ -209,7 +210,7 @@ where
                         return res;
                     }
 
-                    let tid = thread_id::get();
+                    let tid = get_os_thread_id();
                     let track_uuid = if self.inner.create_async_tracks.is_some() {
                         ids::TrackUuid::for_thread(tid)
                     } else {
@@ -228,7 +229,7 @@ where
                 return res;
             }
 
-            let tid = thread_id::get();
+            let tid = get_os_thread_id();
             (
                 ids::TrackUuid::for_thread(tid),
                 ids::SequenceId::for_thread(tid),
@@ -404,7 +405,7 @@ where
     }
 
     fn ensure_thread_known(&self, meta: &tracing::Metadata) {
-        let thread_id = thread_id::get();
+        let thread_id = get_os_thread_id();
         if self.inner.thread_tracks_sent.insert(thread_id) {
             let thread_name = thread::current()
                 .name()

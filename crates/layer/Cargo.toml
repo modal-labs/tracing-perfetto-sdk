@@ -20,6 +20,7 @@ tracing.workspace = true
 tracing-perfetto-sdk-schema.workspace = true
 tracing-perfetto-sdk-sys = { workspace = true, optional = true }
 tracing-subscriber.workspace = true
+libc = { version = "0.2" }
 
 [dev-dependencies]
 anyhow.workspace = true

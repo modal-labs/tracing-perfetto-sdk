@@ -175,6 +175,7 @@ mod debug_annotations;
 mod ffi_utils;
 mod ids;
 mod init;
+mod utils;
 
 // Public modules:
 pub mod error;

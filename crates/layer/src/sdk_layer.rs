@@ -1,4 +1,5 @@
 //! The main tracing layer and related utils exposed by this crate.
+use super::utils::*;
 use std::sync::atomic;
 use std::{borrow, env, fs, process, sync, thread, time};
 
@@ -163,13 +164,13 @@ impl SdkLayer {
             .descriptor_sent
             .fetch_or(true, atomic::Ordering::Relaxed);
         if !thread_descriptor_sent {
-            let tid = thread_id::get();
+            let tid = get_os_thread_id();
             ffi::trace_track_descriptor_thread(
                 self.inner.process_track_uuid.as_raw(),
                 ids::TrackUuid::for_thread(tid).as_raw(),
                 process::id(),
                 thread::current().name().unwrap_or(""),
-                thread_id::get() as u32,
+                get_os_thread_id() as u32,
             );
         }
     }
@@ -201,7 +202,7 @@ impl SdkLayer {
         }
 
         (
-            ids::TrackUuid::for_thread(thread_id::get()),
+            ids::TrackUuid::for_thread(get_os_thread_id()),
             flavor::Flavor::Sync,
         )
     }
