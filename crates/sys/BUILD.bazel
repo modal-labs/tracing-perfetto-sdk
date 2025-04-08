@@ -1,0 +1,50 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+load("rust_cxx_bridge.bzl", "rust_cxx_bridge")
+
+rust_library(
+    name = "libtracing_perfetto_sdk_sys",
+    srcs = [
+        "src/lib.rs",
+    ],
+    aliases = aliases(),
+    crate_name = "tracing_perfetto_sdk_sys",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        normal = True,
+    ),
+)
+
+rust_cxx_bridge(
+    name = "bridge",
+    src = "src/lib.rs",
+    outdir = "tracing-perfetto-sdk-sys",
+    deps = [
+      ":libtracing_perfetto_include",
+    ],
+)
+
+cc_library(
+    name = "libtracing_perfetto_sys",
+    srcs = [
+         "perfetto-sdk/perfetto.cc",
+         "src/perfetto-bindings.cc",
+    ],
+    deps = [
+         ":libtracing_perfetto_include",
+         ":bridge/include",
+    ],
+    includes = [".", "src"],
+)
+
+cc_library(
+    name = "libtracing_perfetto_include",
+    hdrs = [
+         "perfetto-sdk/perfetto.h",
+         "src/perfetto-bindings.h"
+    ],
+    deps = [
+         "@cxx.rs//:core",
+    ],
+    includes = [".", "src"],
+)

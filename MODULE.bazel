@@ -1,0 +1,27 @@
+"""tracing-perfetto-sdk"""
+
+module(
+    name = "tracing-perfetto-sdk",
+    version = "0.12.0",
+    compatibility_level = 0,
+)
+
+# Rust setup
+bazel_dep(name = "rules_rust", version = "0.59.2")
+
+crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+crates.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = [
+        "//:Cargo.toml",
+        "//:crates/layer/Cargo.toml",
+        "//:crates/schema/Cargo.toml",
+        "//:crates/sys/Cargo.toml",
+    ],
+)
+use_repo(crates, "crates")
+
+bazel_dep(name = "rules_cc", version = "0.1.1")
+bazel_dep(name = "cxx.rs", version = "1.0.153")
+bazel_dep(name = "bazel_skylib", version = "1.7.1")

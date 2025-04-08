@@ -1,0 +1,28 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "libtracing_perfetto_sdk_layer",
+    srcs = [
+        "src/debug_annotations.rs",
+        "src/error.rs",
+        "src/ffi_utils.rs",
+        "src/flavor.rs",
+        "src/ids.rs",
+        "src/init.rs",
+        "src/lib.rs",
+        "src/native_layer.rs",
+        "src/sdk_layer.rs",
+        "src/utils.rs",
+    ],
+    aliases = aliases(),
+    crate_name = "tracing_perfetto_sdk_layer",
+    crate_features = ["sdk"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        normal = True,
+    ) + [
+       "//crates/schema:libtracing_perfetto_sdk_schema",
+       "//crates/sys:libtracing_perfetto_sdk_sys",
+    ],
+)
