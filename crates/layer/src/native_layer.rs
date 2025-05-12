@@ -16,6 +16,7 @@ use tracing_subscriber::{fmt, layer, registry};
 
 #[cfg(feature = "sdk")]
 use crate::ffi_utils;
+use crate::ids::thread_id;
 use crate::{debug_annotations, error, flavor, ids, init};
 
 /// A layer to be used with `tracing-subscriber` that natively writes the
@@ -194,7 +195,7 @@ where
         if let Some(flavor) = self.inner.force_flavor.as_ref() {
             match *flavor {
                 flavor::Flavor::Sync => {
-                    let tid = thread_id::get();
+                    let tid = thread_id();
                     (
                         self.inner.process_track_uuid,
                         ids::SequenceId::for_thread(tid),
@@ -209,7 +210,7 @@ where
                         return res;
                     }
 
-                    let tid = thread_id::get();
+                    let tid = thread_id();
                     let track_uuid = if self.inner.create_async_tracks.is_some() {
                         ids::TrackUuid::for_thread(tid)
                     } else {
@@ -228,7 +229,7 @@ where
                 return res;
             }
 
-            let tid = thread_id::get();
+            let tid = thread_id();
             (
                 ids::TrackUuid::for_thread(tid),
                 ids::SequenceId::for_thread(tid),
@@ -404,7 +405,7 @@ where
     }
 
     fn ensure_thread_known(&self, meta: &tracing::Metadata) {
-        let thread_id = thread_id::get();
+        let thread_id = thread_id();
         if self.inner.thread_tracks_sent.insert(thread_id) {
             let thread_name = thread::current()
                 .name()

@@ -9,6 +9,7 @@ use tracing_perfetto_sdk_schema as schema;
 use tracing_perfetto_sdk_sys::ffi;
 use tracing_subscriber::{layer, registry};
 
+use crate::ids::thread_id;
 use crate::{debug_annotations, error, ffi_utils, flavor, ids, init};
 
 /// A layer to be used with `tracing-subscriber` that forwards collected spans
@@ -163,13 +164,13 @@ impl SdkLayer {
             .descriptor_sent
             .fetch_or(true, atomic::Ordering::Relaxed);
         if !thread_descriptor_sent {
-            let tid = thread_id::get();
+            let tid = thread_id();
             ffi::trace_track_descriptor_thread(
                 self.inner.process_track_uuid.as_raw(),
                 ids::TrackUuid::for_thread(tid).as_raw(),
                 process::id(),
                 thread::current().name().unwrap_or(""),
-                thread_id::get() as u32,
+                thread_id() as u32,
             );
         }
     }
@@ -201,7 +202,7 @@ impl SdkLayer {
         }
 
         (
-            ids::TrackUuid::for_thread(thread_id::get()),
+            ids::TrackUuid::for_thread(thread_id()),
             flavor::Flavor::Sync,
         )
     }

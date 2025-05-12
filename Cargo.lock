@@ -546,6 +546,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
 
 [[package]]
+name = "os-id"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abdd7c019e63b363aa15c8738b974351b948ae2332de822f8bb4b273abe774d4"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "overload"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -933,16 +942,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "thread-id"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99043e46c5a15af379c06add30d9c93a6c0e8849de00d244c4a2c417da128d80"
-dependencies = [
- "libc",
- "windows-sys",
-]
-
-[[package]]
 name = "thread_local"
 version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1069,10 +1068,10 @@ dependencies = [
  "cxx",
  "dashmap",
  "nix",
+ "os-id",
  "prost",
  "serde_yaml",
  "thiserror 2.0.8",
- "thread-id",
  "thread_local",
  "tokio",
  "tracing",
