@@ -1,8 +1,6 @@
 #include "perfetto-bindings.h"
 #include <stdexcept>
 
-const char *const RUST_TRACING_DATA_SOURCE_NAME = "rust_tracing";
-
 class RustTracingDataSource
     : public perfetto::DataSource<RustTracingDataSource> {
 public:
@@ -29,6 +27,7 @@ static void _log_callback_wrapper(perfetto::LogMessageCallbackArgs args) {
 }
 
 void perfetto_global_init(LogCallback log_callback,
+                          rust::Str name,
                           bool enable_in_process_backend,
                           bool enable_system_backend) {
   perfetto::TracingInitArgs args;
@@ -50,7 +49,7 @@ void perfetto_global_init(LogCallback log_callback,
 
   // Register Rust tracing support as a custom data source
   perfetto::DataSourceDescriptor dsd;
-  dsd.set_name(RUST_TRACING_DATA_SOURCE_NAME);
+  dsd.set_name(std::string(name));
   RustTracingDataSource::Register(dsd);
 }
 

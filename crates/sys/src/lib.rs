@@ -63,6 +63,7 @@ pub mod ffi {
         /// Must be called once before all other functions in this module.
         fn perfetto_global_init(
             log_callback: fn(level: LogLev, line: i32, filename: &str, message: &str),
+            name: &str,
             enable_in_process_backend: bool,
             enable_system_backend: bool,
         );
