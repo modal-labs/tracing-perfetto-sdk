@@ -11,9 +11,9 @@ bytes.workspace = true
 cxx.workspace = true
 dashmap.workspace = true
 nix = { workspace = true, features = ["time"] }
+os-id.workspace = true
 prost.workspace = true
 thiserror.workspace = true
-thread-id.workspace = true
 thread_local.workspace = true
 tokio = { workspace = true, optional = true }
 tracing.workspace = true
