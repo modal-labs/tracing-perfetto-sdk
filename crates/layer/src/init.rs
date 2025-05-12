@@ -2,10 +2,11 @@
 use tracing_perfetto_sdk_sys::ffi;
 
 #[allow(unused_variables)]
-pub fn global_init(enable_in_process_backend: bool, enable_system_backend: bool) {
+pub fn global_init(name: &str, enable_in_process_backend: bool, enable_system_backend: bool) {
     #[cfg(feature = "sdk")]
     ffi::perfetto_global_init(
         log_callback,
+        name,
         enable_in_process_backend,
         enable_system_backend,
     );

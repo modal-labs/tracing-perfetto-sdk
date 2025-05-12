@@ -18,6 +18,7 @@ using PollTracesCallback =
 using FlushCallback = rust::Fn<void(rust::Box<FlushCtx> ctx, bool success)>;
 
 void perfetto_global_init(LogCallback log_callback,
+                          rust::Str name,
                           bool enable_in_process_backend,
                           bool enable_system_backend);
 
