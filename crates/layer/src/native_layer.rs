@@ -48,6 +48,7 @@ pub struct Builder<'c, W> {
     create_async_tracks: Option<String>,
     enable_in_process: bool,
     enable_system: bool,
+    name: &'c str,
     _phantom: marker::PhantomData<&'c ()>,
 }
 
@@ -117,7 +118,7 @@ where
 
     fn build(builder: Builder<'_, W>) -> error::Result<Self> {
         // Shared global initialization for all layers
-        init::global_init(builder.enable_in_process, builder.enable_system);
+        init::global_init(builder.name, builder.enable_in_process, builder.enable_system);
 
         let writer = sync::Arc::new(builder.writer);
 
@@ -923,8 +924,15 @@ where
             create_async_tracks: None,
             enable_in_process: true,
             enable_system: false,
+            name: "rust_tracing",
             _phantom: marker::PhantomData,
         }
+    }
+
+    /// Set the name for perfetto to producer. This name will have to be specified in a data source.
+    pub fn with_name(mut self, name: &'c str) -> Self {
+        self.name = name;
+        self
     }
 
     /// If `Some`, force the specified trace flavor. If `None`, use heuristics

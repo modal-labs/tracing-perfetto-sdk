@@ -28,6 +28,7 @@ pub struct Builder<'c> {
     drop_flush_timeout: time::Duration,
     enable_in_process: bool,
     enable_system: bool,
+    name: &'c str,
 }
 
 struct ThreadLocalCtx {
@@ -86,7 +87,7 @@ impl SdkLayer {
         use std::os::fd::AsRawFd as _;
 
         // Shared global initialization for all layers
-        init::global_init(builder.enable_in_process, builder.enable_system);
+        init::global_init(builder.name, builder.enable_in_process, builder.enable_system);
 
         let fd = builder
             .output_file
@@ -380,7 +381,14 @@ impl<'c> Builder<'c> {
             drop_flush_timeout: time::Duration::from_millis(100),
             enable_in_process: true,
             enable_system: false,
+            name: "rust_tracing",
         }
+    }
+
+    /// Set the name for perfetto to producer. This name will have to be specified in a data source.
+    pub fn with_name(mut self, name: &'c str) -> Self {
+        self.name = name;
+        self
     }
 
     /// Enable in-process collection, where traces will be collected by buffers
