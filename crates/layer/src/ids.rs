@@ -87,3 +87,7 @@ impl SequenceId {
         self.0
     }
 }
+
+pub(crate) fn thread_id() -> usize {
+    os_id::thread::get_raw_id() as usize
+}
