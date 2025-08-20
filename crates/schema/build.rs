@@ -1,7 +1,7 @@
 use std::{env, path};
 
 fn main() -> anyhow::Result<()> {
-    let proto_root = path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("protos");
+    let proto_root = path::PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("protos");
 
     // https://github.com/google/perfetto/blob/main/protos/perfetto/trace/perfetto_trace.proto
     let proto_files = &[proto_root.join("perfetto_trace.proto")];
