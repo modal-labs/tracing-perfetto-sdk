@@ -307,11 +307,11 @@ impl FlushCtx {
 impl<A> CallbackSender<A> {
     fn send(&mut self, value: A) {
         match self {
-            CallbackSender::Sync(ref mut tx) => {
+            CallbackSender::Sync(tx) => {
                 let _ = tx.send(value);
             }
             #[cfg(feature = "async")]
-            CallbackSender::Async(ref mut tx) => {
+            CallbackSender::Async(tx) => {
                 if let Some(tx) = tx.take() {
                     let _ = tx.send(value);
                 }

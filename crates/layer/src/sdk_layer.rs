@@ -79,7 +79,7 @@ impl SdkLayer {
     /// file is specified, it is probably only useful to run in system mode, so
     /// that the traces are sent to the `traced` daemon instead (else they would
     /// just get lost).
-    pub fn from_config_bytes(config_bytes: &[u8], output_file: Option<fs::File>) -> Builder {
+    pub fn from_config_bytes(config_bytes: &[u8], output_file: Option<fs::File>) -> Builder<'_> {
         Builder::new(config_bytes.into(), output_file)
     }
 

@@ -46,7 +46,7 @@ pub enum CounterValue {
 
 #[cfg(feature = "sdk")]
 impl FFIDebugAnnotations {
-    pub fn as_ffi(&self) -> ffi::DebugAnnotations {
+    pub fn as_ffi(&self) -> ffi::DebugAnnotations<'_> {
         ffi::DebugAnnotations {
             strings: self.strings.as_slice(),
             bools: self.bools.as_slice(),

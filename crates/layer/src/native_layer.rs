@@ -112,7 +112,7 @@ where
     /// [`schema::TraceConfig`].
     ///
     /// The built layer will write traces to the supplied writer.
-    pub fn from_config_bytes(config_bytes: &[u8], writer: W) -> Builder<W> {
+    pub fn from_config_bytes(config_bytes: &[u8], writer: W) -> Builder<'_, W> {
         Builder::new(config_bytes.into(), writer)
     }
 
