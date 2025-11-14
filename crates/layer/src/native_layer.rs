@@ -807,6 +807,8 @@ where
             } else {
                 self.report_slice_begin(meta, track_uuid, sequence_id, debug_annotations);
             }
+        } else {
+            span.extensions_mut().insert(debug_annotations);
         }
     }
 
