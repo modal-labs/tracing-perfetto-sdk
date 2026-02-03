@@ -12,7 +12,7 @@ tracing-perfetto-sdk-schema = { version = "0.13.0", path = "crates/schema" }
 tracing-perfetto-sdk-sys = { version = "0.13.0", path = "crates/sys" }
 
 anyhow = "1.0.100"
-bytes = "1.10.1"
+bytes = "1.11.1"
 cxx = { version = "1.0.186", features = ["c++17"] }
 cxx-build = { version = "1.0.186", features = ["parallel"] }
 dashmap = "6.1.0"
