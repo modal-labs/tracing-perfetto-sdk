@@ -118,7 +118,11 @@ where
 
     fn build(builder: Builder<'_, W>) -> error::Result<Self> {
         // Shared global initialization for all layers
-        init::global_init(builder.name, builder.enable_in_process, builder.enable_system);
+        init::global_init(
+            builder.name,
+            builder.enable_in_process,
+            builder.enable_system,
+        );
 
         let writer = sync::Arc::new(builder.writer);
 
@@ -408,9 +412,13 @@ where
     fn ensure_thread_known(&self, meta: &tracing::Metadata) {
         let thread_id = thread_id();
         if self.inner.thread_tracks_sent.insert(thread_id) {
+            // Fall back to the OS thread name (e.g. set by GLib/C libraries via
+            // pthread_setname_np) for threads created outside Rust, which carry
+            // no Rust-side name.
             let thread_name = thread::current()
                 .name()
                 .map(|s| s.to_owned())
+                .or_else(crate::ids::os_thread_name)
                 .unwrap_or_else(|| format!("(unnamed thread {thread_id})"));
             let packet = if let Some(ref name) = self.inner.create_async_tracks {
                 self.create_thread_track_descriptor(thread_id, name.to_owned(), false)
@@ -931,7 +939,8 @@ where
         }
     }
 
-    /// Set the name for perfetto to producer. This name will have to be specified in a data source.
+    /// Set the name for perfetto to producer. This name will have to be
+    /// specified in a data source.
     pub fn with_name(mut self, name: &'c str) -> Self {
         self.name = name;
         self
