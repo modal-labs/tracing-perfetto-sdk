@@ -46,6 +46,7 @@ pub struct Builder<'c, W> {
     delay_slice_begin: bool,
     discard_tracing_data: bool,
     create_async_tracks: Option<String>,
+    real_thread_tracks: bool,
     enable_in_process: bool,
     enable_system: bool,
     name: &'c str,
@@ -66,6 +67,7 @@ where
     delay_slice_begin: bool,
     discard_tracing_data: bool,
     create_async_tracks: Option<String>,
+    real_thread_tracks: bool,
     process_track_uuid: ids::TrackUuid,
     process_descriptor_sent: atomic::AtomicBool,
     #[cfg(feature = "tokio")]
@@ -159,6 +161,7 @@ where
         let delay_slice_begin = builder.delay_slice_begin;
         let discard_tracing_data = builder.discard_tracing_data;
         let create_async_tracks = builder.create_async_tracks;
+        let real_thread_tracks = builder.real_thread_tracks;
         let pid = process::id();
         let process_track_uuid = ids::TrackUuid::for_process(pid);
         let process_descriptor_sent = atomic::AtomicBool::new(false);
@@ -181,6 +184,7 @@ where
             delay_slice_begin,
             discard_tracing_data,
             create_async_tracks,
+            real_thread_tracks,
             process_track_uuid,
             process_descriptor_sent,
             #[cfg(feature = "tokio")]
@@ -420,10 +424,14 @@ where
                 .map(|s| s.to_owned())
                 .or_else(crate::ids::os_thread_name)
                 .unwrap_or_else(|| format!("(unnamed thread {thread_id})"));
-            let packet = if let Some(ref name) = self.inner.create_async_tracks {
-                self.create_thread_track_descriptor(thread_id, name.to_owned(), false)
-            } else {
-                self.create_thread_track_descriptor(thread_id, thread_name, true)
+            let packet = match self.inner.create_async_tracks {
+                // Light-weight per-thread async track (the default): a named
+                // track without a ThreadDescriptor.
+                Some(ref name) if !self.inner.real_thread_tracks => {
+                    self.create_thread_track_descriptor(thread_id, name.to_owned(), false)
+                }
+                // Sync tracks, or async tracks promoted to real thread tracks.
+                _ => self.create_thread_track_descriptor(thread_id, thread_name, true),
             };
             self.write_packet(meta, packet);
         }
@@ -932,6 +940,7 @@ where
             delay_slice_begin: false,
             discard_tracing_data: false,
             create_async_tracks: None,
+            real_thread_tracks: false,
             enable_in_process: true,
             enable_system: false,
             name: "rust_tracing",
@@ -984,6 +993,20 @@ where
     /// trade-off is some data inflation and a laggier UI as a result.
     pub fn with_create_async_tracks(mut self, create_async_tracks: Option<String>) -> Self {
         self.create_async_tracks = create_async_tracks;
+        self
+    }
+
+    /// When per-thread async tracks are created (see
+    /// [`Self::with_create_async_tracks`]), emit them as real thread tracks
+    /// (with a `ThreadDescriptor` named from the OS thread name) instead of
+    /// light-weight tracks, so Perfetto groups and labels them as threads.
+    ///
+    /// This only affects the per-OS-thread tracks (a bounded set); per-task
+    /// async tracks remain light-weight. Useful for thread-based, non-async
+    /// workloads (e.g. C libraries such as GStreamer) where each track really
+    /// is a distinct OS thread. Defaults to `false`.
+    pub fn with_real_thread_tracks(mut self, real_thread_tracks: bool) -> Self {
+        self.real_thread_tracks = real_thread_tracks;
         self
     }
 
