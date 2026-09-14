@@ -494,11 +494,11 @@ where
 
     #[cfg(feature = "tokio")]
     fn ensure_task_track_known(&self, meta: &tracing::Metadata, name: &str) {
-        if let Some(task_id) = task::try_id() {
-            if self.inner.task_tracks_sent.insert(task_id) {
-                let packet = self.create_task_track_descriptor(task_id, name.to_owned());
-                self.write_packet(meta, packet);
-            }
+        if let Some(task_id) = task::try_id()
+            && self.inner.task_tracks_sent.insert(task_id)
+        {
+            let packet = self.create_task_track_descriptor(task_id, name.to_owned());
+            self.write_packet(meta, packet);
         }
     }
 
@@ -1160,12 +1160,12 @@ where
         {
             use std::io::Write as _;
 
-            let data = ffi_utils::with_session_lock(&*self.ffi_session, |session| {
+            let data = ffi_utils::with_session_lock(&self.ffi_session, |session| {
                 ffi_utils::do_flush(session, flush_timeout)?;
                 let data = ffi_utils::do_poll_traces(session, poll_timeout)?;
                 Ok(data)
             })?;
-            self.writer.make_writer().write_all(&*data.data)?;
+            self.writer.make_writer().write_all(&data.data)?;
         }
 
         Ok(())
@@ -1311,7 +1311,7 @@ fn background_poller_thread<W>(
     use std::io::Write as _;
 
     loop {
-        let poll_result = ffi_utils::with_session_lock(&*ffi_session, |session| {
+        let poll_result = ffi_utils::with_session_lock(&ffi_session, |session| {
             // TODO: consider making timeouts configurable
             ffi_utils::do_flush(session, background_flush_timeout)?;
             let data = ffi_utils::do_poll_traces(session, background_poll_timeout)?;
@@ -1320,7 +1320,7 @@ fn background_poller_thread<W>(
 
         match poll_result {
             Ok(data) => {
-                let _ = writer.make_writer().write_all(&*data.data);
+                let _ = writer.make_writer().write_all(&data.data);
             }
             Err(error) => match error {
                 error::Error::TimedOut => {

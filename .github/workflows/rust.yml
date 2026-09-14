@@ -60,3 +60,35 @@ jobs:
       run: cargo build --all --features=serde,tokio
     - name: Run tests
       run: cargo test --all --features=serde,tokio
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+    - name: Install Protoc
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+    - name: Clippy
+      run: cargo clippy --all --all-targets --features=serde,tokio -- -D warnings
+    - name: Clippy (no default features)
+      run: cargo clippy --all --all-targets --no-default-features -- -D warnings
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+    - name: Install Protoc
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+    - name: Build
+      run: cargo build --all --features=serde,tokio
+    - name: Run tests
+      run: cargo test --all --features=serde,tokio
+  # The C++ SDK is not built here: this job exists to keep the Windows-only
+  # code in `ids.rs` compiling, which needs no Perfetto SDK.
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+    - name: Install Protoc
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+    - name: Build
+      run: cargo build --all --no-default-features
+    - name: Run tests
+      run: cargo test --all --no-default-features
