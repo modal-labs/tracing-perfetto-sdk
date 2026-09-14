@@ -16,6 +16,9 @@ const TOKIO_NS: u32 = 3;
 #[cfg(feature = "tokio")]
 const TASK_NS: u32 = 4;
 const COUNTER_NS: u32 = 5;
+const SPAN_NS: u32 = 6;
+
+const FLOW_ID_NS: u32 = 3;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -24,6 +27,29 @@ pub struct TrackUuid(u64);
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct SequenceId(u32);
+
+/// Identifies a Perfetto flow: a set of track events that Perfetto draws
+/// arrows between, in timestamp order.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct FlowId(u64);
+
+impl FlowId {
+    /// The flow that `span` is the source of, and that its children join.
+    ///
+    /// The registry recycles span ids once a span closes, which is why the
+    /// span's own slice end terminates this flow: an explicitly terminated
+    /// flow id is safe for Perfetto to see reused later.
+    pub fn for_span(span: &tracing::span::Id) -> FlowId {
+        let mut h = hash::DefaultHasher::new();
+        (FLOW_ID_NS, SPAN_NS, span.into_u64()).hash(&mut h);
+        FlowId(h.finish())
+    }
+
+    pub fn as_raw(self) -> u64 {
+        self.0
+    }
+}
 
 impl TrackUuid {
     pub fn for_process(pid: u32) -> TrackUuid {
@@ -154,8 +180,8 @@ pub(crate) fn os_thread_name() -> Option<String> {
     if hr < 0 || wide.is_null() {
         return None;
     }
-    // SAFETY: on success `wide` points to a NUL-terminated UTF-16 string that we
-    // must release with `LocalFree`.
+    // SAFETY: on success `wide` points to a NUL-terminated UTF-16 string that
+    // we must release with `LocalFree`.
     let mut len = 0usize;
     while unsafe { *wide.add(len) } != 0 {
         len += 1;

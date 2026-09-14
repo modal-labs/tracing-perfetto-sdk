@@ -96,6 +96,39 @@ struct DelayedSliceBegin {
     meta: &'static tracing::Metadata<'static>,
     track_uuid: ids::TrackUuid,
     sequence_id: ids::SequenceId,
+    flows: SpanFlows,
+}
+
+/// The flows tying a span's slices to those of its parent and children.
+///
+/// Perfetto infers flow direction from timestamps, so the parent has to
+/// advertise the flow on its own slice begin, which is necessarily the
+/// earliest event in it. Children then join that same flow when they start,
+/// and Perfetto draws an arrow from the parent into each of them.
+#[derive(Clone, Copy, Debug, Default)]
+struct SpanFlows {
+    /// The flow this span is the source of. Children join it, and the span's
+    /// own slice end terminates it.
+    own: ids::FlowId,
+    /// The parent span's flow, for spans that have a parent.
+    parent: Option<ids::FlowId>,
+}
+
+impl SpanFlows {
+    /// The ids to advertise on a slice begin: this span's own flow, plus the
+    /// parent's flow that it is joining.
+    fn beginning(&self) -> Vec<u64> {
+        let mut ids = vec![self.own.as_raw()];
+        ids.extend(self.parent.map(ids::FlowId::as_raw));
+        ids
+    }
+
+    /// The ids to terminate on a slice end.
+    ///
+    /// Only this span's own flow: the parent's flow is the parent's to close.
+    fn terminating(&self) -> Vec<u64> {
+        vec![self.own.as_raw()]
+    }
 }
 
 impl<W> NativeLayer<W>
@@ -292,6 +325,7 @@ where
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
         debug_annotations: debug_annotations::ProtoDebugAnnotations,
+        flows: SpanFlows,
     ) {
         let packet = self.create_slice_begin_track_event_packet(
             trace_time_ns(),
@@ -300,6 +334,7 @@ where
             track_uuid,
             sequence_id,
             debug_annotations,
+            flows,
         );
         self.ensure_context_known(meta);
         self.write_packet(meta, packet);
@@ -324,6 +359,7 @@ where
             .get::<debug_annotations::ProtoDebugAnnotations>()
             .cloned()
             .unwrap_or_default();
+        let flows = extensions.get::<SpanFlows>().copied().unwrap_or_default();
 
         if let Some(delayed_slice_begin) = extensions.get::<DelayedSliceBegin>() {
             let slice_begin_packet = self.create_slice_begin_track_event_packet(
@@ -333,6 +369,7 @@ where
                 delayed_slice_begin.track_uuid,
                 delayed_slice_begin.sequence_id,
                 debug_annotations.clone(),
+                delayed_slice_begin.flows,
             );
             self.ensure_context_known(delayed_slice_begin.meta);
             self.write_packet(delayed_slice_begin.meta, slice_begin_packet);
@@ -345,6 +382,7 @@ where
             track_uuid,
             sequence_id,
             debug_annotations,
+            flows,
         );
         self.ensure_context_known(meta);
         self.write_packet(meta, packet);
@@ -625,6 +663,7 @@ where
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
         debug_annotations: debug_annotations::ProtoDebugAnnotations,
+        flows: SpanFlows,
     ) -> schema::TracePacket {
         schema::TracePacket {
             timestamp: Some(timestamp_ns),
@@ -640,6 +679,7 @@ where
                 name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
                 debug_annotations: debug_annotations.into_proto(),
                 source_location_field: Self::source_location_field(meta),
+                flow_ids: flows.beginning(),
                 ..Default::default()
             })),
             ..Default::default()
@@ -655,6 +695,7 @@ where
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
         debug_annotations: debug_annotations::ProtoDebugAnnotations,
+        flows: SpanFlows,
     ) -> schema::TracePacket {
         schema::TracePacket {
             timestamp: Some(timestamp_ns),
@@ -666,6 +707,7 @@ where
             ),
             data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
                 r#type: Some(track_event::Type::SliceEnd as i32),
+                terminating_flow_ids: flows.terminating(),
                 track_uuid: Some(track_uuid.as_raw()),
                 name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
                 debug_annotations: debug_annotations.into_proto(),
@@ -816,6 +858,14 @@ where
         // at the other, emitting unpaired slices.
         span.extensions_mut().insert(flavor);
 
+        let flows = SpanFlows {
+            own: ids::FlowId::for_span(id),
+            parent: span
+                .parent()
+                .map(|parent| ids::FlowId::for_span(&parent.id())),
+        };
+        span.extensions_mut().insert(flows);
+
         let mut debug_annotations = debug_annotations::ProtoDebugAnnotations::default();
         attrs.record(&mut debug_annotations);
         self.report_counters(meta, debug_annotations.take_counters());
@@ -829,9 +879,10 @@ where
                     meta,
                     track_uuid,
                     sequence_id,
+                    flows,
                 })
             } else {
-                self.report_slice_begin(meta, track_uuid, sequence_id, debug_annotations);
+                self.report_slice_begin(meta, track_uuid, sequence_id, debug_annotations, flows);
             }
         } else {
             span.extensions_mut().insert(debug_annotations);
@@ -895,7 +946,12 @@ where
                 .get_mut::<debug_annotations::ProtoDebugAnnotations>()
                 .map(mem::take)
                 .unwrap_or_default();
-            self.report_slice_begin(meta, track_uuid, sequence_id, debug_annotations);
+            let flows = span
+                .extensions()
+                .get::<SpanFlows>()
+                .copied()
+                .unwrap_or_default();
+            self.report_slice_begin(meta, track_uuid, sequence_id, debug_annotations, flows);
         }
     }
 
@@ -1110,8 +1166,8 @@ where
     fn stop(&self) -> error::Result<()> {
         #[cfg(feature = "sdk")]
         {
-            // Can't use ffi_utils::with_session_lock here because we want to take the
-            // session object
+            // Can't use ffi_utils::with_session_lock here because we want to
+            // take the session object
             let mut session = self
                 .ffi_session
                 .lock()
