@@ -17,7 +17,7 @@ use tracing_subscriber::{fmt, layer, registry};
 #[cfg(feature = "sdk")]
 use crate::ffi_utils;
 use crate::ids::thread_id;
-use crate::{debug_annotations, error, flavor, ids, init};
+use crate::{bounded_set, debug_annotations, error, flavor, ids, init};
 
 /// A layer to be used with `tracing-subscriber` that natively writes the
 /// Perfetto trace packets in Rust code, but also polls the Perfetto SDK for
@@ -74,11 +74,19 @@ where
     tokio_descriptor_sent: atomic::AtomicBool,
     #[cfg(feature = "tokio")]
     tokio_track_uuid: ids::TrackUuid,
+    // Counter names come from `&'static str` literals in instrumented code,
+    // so this set is inherently bounded and can stay exact.
     counter_tracks_sent: dashmap::DashSet<&'static str>,
-    thread_tracks_sent: dashmap::DashSet<usize>,
+    thread_tracks_sent: bounded_set::BoundedSet<usize>,
     #[cfg(feature = "tokio")]
-    task_tracks_sent: dashmap::DashSet<task::Id>,
+    task_tracks_sent: bounded_set::BoundedSet<task::Id>,
 }
+
+/// How many thread and task track descriptors we remember having written.
+///
+/// Comfortably above the number of tracks any realistic workload has live at
+/// once, while keeping the bookkeeping to a few hundred kilobytes.
+const TRACK_CACHE_CAPACITY: usize = 16 * 1024;
 
 // Does not contain DebugAnnotations; they are shipped separately as a span
 // extension
@@ -170,9 +178,9 @@ where
         #[cfg(feature = "tokio")]
         let tokio_track_uuid = ids::TrackUuid::for_tokio();
         let counter_tracks_sent = dashmap::DashSet::new();
-        let thread_tracks_sent = dashmap::DashSet::new();
+        let thread_tracks_sent = bounded_set::BoundedSet::new(TRACK_CACHE_CAPACITY);
         #[cfg(feature = "tokio")]
-        let task_tracks_sent = dashmap::DashSet::new();
+        let task_tracks_sent = bounded_set::BoundedSet::new(TRACK_CACHE_CAPACITY);
 
         let inner = sync::Arc::new(Inner {
             #[cfg(feature = "sdk")]

@@ -170,6 +170,7 @@
 //!     for new data in the background thread.
 
 // Internal modules:
+mod bounded_set;
 mod debug_annotations;
 #[cfg(feature = "sdk")]
 mod ffi_utils;
