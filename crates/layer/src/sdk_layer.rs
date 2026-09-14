@@ -166,12 +166,20 @@ impl SdkLayer {
             .fetch_or(true, atomic::Ordering::Relaxed);
         if !thread_descriptor_sent {
             let tid = thread_id();
+            // Fall back to the OS thread name (e.g. set by GLib/C libraries
+            // via pthread_setname_np) for threads created outside Rust, which
+            // carry no Rust-side name.
+            let thread_name = thread::current()
+                .name()
+                .map(|s| s.to_owned())
+                .or_else(ids::os_thread_name)
+                .unwrap_or_else(|| format!("(unnamed thread {tid})"));
             ffi::trace_track_descriptor_thread(
                 self.inner.process_track_uuid.as_raw(),
                 ids::TrackUuid::for_thread(tid).as_raw(),
                 process::id(),
-                thread::current().name().unwrap_or(""),
-                thread_id() as u32,
+                &thread_name,
+                tid as u32,
             );
         }
     }
