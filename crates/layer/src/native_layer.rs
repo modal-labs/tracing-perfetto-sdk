@@ -1034,8 +1034,8 @@ where
 
     /// The timeout of the final poll that will happen when dropping this
     /// layer.
-    pub fn with_drop_poll_timeout(mut self, drop_flush_timeout: time::Duration) -> Self {
-        self.drop_flush_timeout = drop_flush_timeout;
+    pub fn with_drop_poll_timeout(mut self, drop_poll_timeout: time::Duration) -> Self {
+        self.drop_poll_timeout = drop_poll_timeout;
         self
     }
 
