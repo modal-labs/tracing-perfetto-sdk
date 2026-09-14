@@ -508,7 +508,7 @@ where
         let thread = if include_thread_metadata {
             Some(schema::ThreadDescriptor {
                 pid: Some(process::id() as i32),
-                tid: Some((thread_id as i32).saturating_abs()),
+                tid: Some(thread_id as i64),
                 thread_name: Some(thread_name.clone()),
                 ..Default::default()
             })
@@ -543,7 +543,7 @@ where
                     uuid: Some(self.inner.tokio_track_uuid.as_raw()),
                     thread: Some(schema::ThreadDescriptor {
                         pid: Some(process::id() as i32),
-                        tid: Some(TOKIO_THREAD_ID as i32),
+                        tid: Some(TOKIO_THREAD_ID as i64),
                         thread_name: Some("tokio-runtime".to_owned()),
                         ..Default::default()
                     }),
