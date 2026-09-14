@@ -178,6 +178,7 @@ fn td_name(track_descriptor: &schema::TrackDescriptor) -> &str {
     match track_descriptor.static_or_dynamic_name {
         Some(track_descriptor::StaticOrDynamicName::Name(ref str)) => str,
         Some(track_descriptor::StaticOrDynamicName::StaticName(ref str)) => str,
+        Some(track_descriptor::StaticOrDynamicName::AtraceName(ref str)) => str,
         None => "",
     }
 }
