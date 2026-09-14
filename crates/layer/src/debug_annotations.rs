@@ -28,8 +28,12 @@ pub struct FFIDebugAnnotations {
 pub struct ProtoDebugAnnotations {
     counters: Vec<Counter>,
     suppress_event: bool,
+    message: Option<String>,
     annotations: Vec<schema::DebugAnnotation>,
 }
+
+/// The field `tracing` records a log event's formatted message under.
+const MESSAGE_FIELD: &str = "message";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Counter {
@@ -160,6 +164,11 @@ impl ProtoDebugAnnotations {
         self.suppress_event
     }
 
+    /// The formatted message of a log event, if one was recorded.
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+
     fn name_field(field: &field::Field) -> Option<debug_annotation::NameField> {
         Some(debug_annotation::NameField::Name(field.name().to_string()))
     }
@@ -237,6 +246,9 @@ impl field::Visit for ProtoDebugAnnotations {
     }
 
     fn record_str(&mut self, field: &field::Field, value: &str) {
+        if field.name() == MESSAGE_FIELD {
+            self.message = Some(value.to_owned());
+        }
         self.annotations.push(schema::DebugAnnotation {
             name_field: Self::name_field(field),
             value: Some(debug_annotation::Value::StringValue(value.to_owned())),
@@ -253,9 +265,13 @@ impl field::Visit for ProtoDebugAnnotations {
     }
 
     fn record_debug(&mut self, field: &field::Field, value: &dyn std::fmt::Debug) {
+        let value = format!("{:?}", value);
+        if field.name() == MESSAGE_FIELD {
+            self.message = Some(value.clone());
+        }
         self.annotations.push(schema::DebugAnnotation {
             name_field: Self::name_field(field),
-            value: Some(debug_annotation::Value::StringValue(format!("{:?}", value))),
+            value: Some(debug_annotation::Value::StringValue(value)),
             ..Default::default()
         });
     }
