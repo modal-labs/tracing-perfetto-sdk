@@ -654,6 +654,11 @@ where
         }
     }
 
+    // Each argument is a distinct proto field to populate, so the count
+    // tracks the shape of TracePacket rather than any real complexity.
+    // Worth folding the timestamp/track/sequence trio into a struct at some
+    // point, since every create_* function here repeats it.
+    #[allow(clippy::too_many_arguments)]
     #[must_use]
     fn create_slice_begin_track_event_packet(
         &self,
@@ -686,6 +691,7 @@ where
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[must_use]
     fn create_slice_end_track_event_packet(
         &self,
