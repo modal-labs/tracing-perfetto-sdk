@@ -849,7 +849,7 @@ where
         }
     }
 
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: layer::Context<'_, S>) {
+    fn on_event(&self, event: &tracing::Event<'_>, ctx: layer::Context<'_, S>) {
         if self.inner.discard_tracing_data {
             return;
         }
@@ -861,6 +861,14 @@ where
 
         if !debug_annotations.suppress_event() {
             let (track_uuid, sequence_id, _) = self.pick_trace_track_sequence();
+            // Put the instant on whichever track the enclosing span is being
+            // recorded on. Deriving it from the ambient context instead
+            // strands the event on a different track than the slice it
+            // belongs to whenever the two disagree.
+            let track_uuid = ctx
+                .event_span(event)
+                .and_then(|span| span.extensions().get::<ids::TrackUuid>().copied())
+                .unwrap_or(track_uuid);
             self.report_event(meta, debug_annotations, track_uuid, sequence_id);
         }
     }

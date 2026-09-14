@@ -143,8 +143,8 @@ pub(crate) fn os_thread_name() -> Option<String> {
     if hr < 0 || wide.is_null() {
         return None;
     }
-    // SAFETY: on success `wide` points to a NUL-terminated UTF-16 string that we
-    // must release with `LocalFree`.
+    // SAFETY: on success `wide` points to a NUL-terminated UTF-16 string that
+    // we must release with `LocalFree`.
     let mut len = 0usize;
     while unsafe { *wide.add(len) } != 0 {
         len += 1;
