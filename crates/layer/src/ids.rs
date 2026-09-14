@@ -91,3 +91,77 @@ impl SequenceId {
 pub(crate) fn thread_id() -> usize {
     os_id::thread::get_raw_id() as usize
 }
+
+/// Returns the OS-level name of the current thread, if it has one.
+///
+/// Unlike [`std::thread::Thread::name`] this also sees threads created outside
+/// of Rust (for example by C libraries such as GLib), which never carry a
+/// Rust-side name. Returns `None` on platforms where the name cannot be
+/// queried.
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios"
+))]
+pub(crate) fn os_thread_name() -> Option<String> {
+    // The name is set via pthread_setname_np / prctl(PR_SET_NAME); 64 bytes is
+    // larger than every platform's limit.
+    let mut buf = [0 as libc::c_char; 64];
+    // SAFETY: `buf` is a valid, writable buffer of `buf.len()` bytes.
+    let ret =
+        unsafe { libc::pthread_getname_np(libc::pthread_self(), buf.as_mut_ptr(), buf.len()) };
+    if ret != 0 {
+        return None;
+    }
+    // SAFETY: on success the buffer holds a NUL-terminated C string.
+    let name = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
+    match name.to_str() {
+        Ok(s) if !s.is_empty() => Some(s.to_owned()),
+        _ => None,
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn os_thread_name() -> Option<String> {
+    use std::ffi::c_void;
+
+    // Minimal kernel32 declarations to avoid pulling in a Win32 binding crate
+    // just for the thread name. The name is set via SetThreadDescription.
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentThread() -> *mut c_void;
+        fn GetThreadDescription(thread: *mut c_void, description: *mut *mut u16) -> i32;
+        fn LocalFree(mem: *mut c_void) -> *mut c_void;
+    }
+
+    let mut wide: *mut u16 = std::ptr::null_mut();
+    // SAFETY: `GetCurrentThread` is a pseudo-handle that needs no closing;
+    // `GetThreadDescription` writes an owned UTF-16 string pointer into `wide`.
+    let hr = unsafe { GetThreadDescription(GetCurrentThread(), &mut wide) };
+    // `hr` is an HRESULT; negative means failure (SUCCEEDED(hr) == hr >= 0).
+    if hr < 0 || wide.is_null() {
+        return None;
+    }
+    // SAFETY: on success `wide` points to a NUL-terminated UTF-16 string that we
+    // must release with `LocalFree`.
+    let mut len = 0usize;
+    while unsafe { *wide.add(len) } != 0 {
+        len += 1;
+    }
+    let name = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(wide, len) });
+    // SAFETY: `wide` was allocated by `GetThreadDescription`.
+    unsafe { LocalFree(wide as *mut c_void) };
+    if name.is_empty() { None } else { Some(name) }
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    windows
+)))]
+pub(crate) fn os_thread_name() -> Option<String> {
+    None
+}
