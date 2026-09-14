@@ -1,13 +1,13 @@
 use std::hash;
 use std::hash::Hash as _;
 use std::hash::Hasher as _;
+use std::sync::atomic;
 
 #[cfg(feature = "tokio")]
 use tokio::task;
 
 // Seeds for consistent hashing of pid/tid/task id
 const TRACK_UUID_NS: u32 = 1;
-const SEQUENCE_ID_NS: u32 = 2;
 
 const PROCESS_NS: u32 = 1;
 const THREAD_NS: u32 = 2;
@@ -63,24 +63,35 @@ impl TrackUuid {
     }
 }
 
+/// Hands out the `trusted_packet_sequence_id`s used by [`SequenceId::current`].
+///
+/// Starts at 1 because Perfetto reads a sequence id of 0 as "unset".
+static NEXT_SEQUENCE_ID: atomic::AtomicU32 = atomic::AtomicU32::new(1);
+
+thread_local! {
+    static THREAD_SEQUENCE_ID: SequenceId = SequenceId::alloc();
+}
+
 impl SequenceId {
-    pub fn for_thread(tid: usize) -> SequenceId {
-        let mut h = hash::DefaultHasher::new();
-        (SEQUENCE_ID_NS, THREAD_NS, tid).hash(&mut h);
-        SequenceId(h.finish() as u32)
+    /// The sequence id belonging to the calling thread.
+    ///
+    /// Perfetto models a packet sequence as a single writer emitting packets
+    /// in order, so sequences are scoped to OS threads: whatever a thread
+    /// emits — spans, instants, counters, and events for whichever Tokio task
+    /// it happens to be polling — shares that thread's sequence. Slices are
+    /// still paired up by `track_uuid`, so a task that migrates between
+    /// threads mid-span is unaffected.
+    pub fn current() -> SequenceId {
+        THREAD_SEQUENCE_ID.with(|id| *id)
     }
 
-    #[cfg(feature = "tokio")]
-    pub fn for_task(id: task::Id) -> SequenceId {
-        let mut h = hash::DefaultHasher::new();
-        (SEQUENCE_ID_NS, TASK_NS, id).hash(&mut h);
-        SequenceId(h.finish() as u32)
-    }
-
-    pub fn for_counter(counter_name: &str) -> SequenceId {
-        let mut h = hash::DefaultHasher::new();
-        (SEQUENCE_ID_NS, COUNTER_NS, counter_name).hash(&mut h);
-        SequenceId(h.finish() as u32)
+    fn alloc() -> SequenceId {
+        let mut raw = NEXT_SEQUENCE_ID.fetch_add(1, atomic::Ordering::Relaxed);
+        // Skip 0 if the counter ever wraps; Perfetto would read it as "unset".
+        while raw == 0 {
+            raw = NEXT_SEQUENCE_ID.fetch_add(1, atomic::Ordering::Relaxed);
+        }
+        SequenceId(raw)
     }
 
     pub fn as_raw(self) -> u32 {

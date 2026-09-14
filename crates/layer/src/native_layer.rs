@@ -203,14 +203,11 @@ where
     fn pick_trace_track_sequence(&self) -> (ids::TrackUuid, ids::SequenceId, flavor::Flavor) {
         if let Some(flavor) = self.inner.force_flavor.as_ref() {
             match *flavor {
-                flavor::Flavor::Sync => {
-                    let tid = thread_id();
-                    (
-                        self.inner.process_track_uuid,
-                        ids::SequenceId::for_thread(tid),
-                        flavor::Flavor::Sync,
-                    )
-                }
+                flavor::Flavor::Sync => (
+                    self.inner.process_track_uuid,
+                    ids::SequenceId::current(),
+                    flavor::Flavor::Sync,
+                ),
                 flavor::Flavor::Async => {
                     #[cfg(feature = "tokio")]
                     if let Some(res) =
@@ -227,7 +224,7 @@ where
                     };
                     (
                         track_uuid,
-                        ids::SequenceId::for_thread(tid),
+                        ids::SequenceId::current(),
                         flavor::Flavor::Async,
                     )
                 }
@@ -241,7 +238,7 @@ where
             let tid = thread_id();
             (
                 ids::TrackUuid::for_thread(tid),
-                ids::SequenceId::for_thread(tid),
+                ids::SequenceId::current(),
                 flavor::Flavor::Sync,
             )
         }
@@ -261,7 +258,7 @@ where
 
         Some((
             track_uuid,
-            ids::SequenceId::for_task(id),
+            ids::SequenceId::current(),
             flavor::Flavor::Async,
         ))
     }
@@ -713,7 +710,7 @@ where
             timestamp_clock_id: Some(timestamp_clock_id),
             optional_trusted_packet_sequence_id: Some(
                 trace_packet::OptionalTrustedPacketSequenceId::TrustedPacketSequenceId(
-                    ids::SequenceId::for_counter(counter.name).as_raw(),
+                    ids::SequenceId::current().as_raw(),
                 ),
             ),
             data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
