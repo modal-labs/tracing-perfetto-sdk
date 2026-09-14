@@ -805,6 +805,11 @@ where
         let (track_uuid, sequence_id, flavor) = self.pick_trace_track_sequence();
         span.extensions_mut().insert(track_uuid);
         span.extensions_mut().insert(sequence_id);
+        // The flavor is decided once, here, and reused for the rest of the
+        // span's lifetime: re-deriving it later would let a span that moves
+        // between execution contexts be reported as sync at one end and async
+        // at the other, emitting unpaired slices.
+        span.extensions_mut().insert(flavor);
 
         let mut debug_annotations = debug_annotations::ProtoDebugAnnotations::default();
         attrs.record(&mut debug_annotations);
@@ -872,8 +877,9 @@ where
 
         let span = ctx.span(id).expect("span to be found (this is a bug)");
 
-        let (track_uuid, sequence_id, flavor) = self.pick_trace_track_sequence();
+        let (track_uuid, sequence_id, current_flavor) = self.pick_trace_track_sequence();
         let meta = span.metadata();
+        let flavor = span_flavor(&span, current_flavor);
 
         if flavor == flavor::Flavor::Sync {
             span.extensions_mut().replace(track_uuid);
@@ -896,7 +902,8 @@ where
         let span = ctx.span(id).expect("span to be found (this is a bug)");
 
         let meta = span.metadata();
-        let (track_uuid, sequence_id, flavor) = self.pick_trace_track_sequence();
+        let (track_uuid, sequence_id, current_flavor) = self.pick_trace_track_sequence();
+        let flavor = span_flavor(&span, current_flavor);
         let extensions = span.extensions();
 
         if flavor == flavor::Flavor::Sync {
@@ -912,7 +919,8 @@ where
         let span = ctx.span(&id).expect("span to be found (this is a bug)");
 
         let meta = span.metadata();
-        let (track_uuid, sequence_id, flavor) = self.pick_trace_track_sequence();
+        let (track_uuid, sequence_id, current_flavor) = self.pick_trace_track_sequence();
+        let flavor = span_flavor(&span, current_flavor);
         let extensions = span.extensions();
 
         if flavor == flavor::Flavor::Async {
@@ -1119,6 +1127,18 @@ where
         let _ = self.flush(self.drop_flush_timeout, self.drop_poll_timeout);
         let _ = self.stop();
     }
+}
+
+/// The flavor that was picked for `span` when it was created, falling back to
+/// `default` for spans that predate this layer being installed.
+fn span_flavor<S>(span: &registry::SpanRef<'_, S>, default: flavor::Flavor) -> flavor::Flavor
+where
+    S: for<'a> registry::LookupSpan<'a>,
+{
+    span.extensions()
+        .get::<flavor::Flavor>()
+        .copied()
+        .unwrap_or(default)
 }
 
 #[cfg(not(feature = "sdk"))]
