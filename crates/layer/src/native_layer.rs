@@ -355,20 +355,23 @@ where
             .get::<ids::SequenceId>()
             .copied()
             .unwrap_or(sequence_id);
-        let debug_annotations = extensions
+        let mut debug_annotations = extensions
             .get::<debug_annotations::ProtoDebugAnnotations>()
             .cloned()
             .unwrap_or_default();
         let flows = extensions.get::<SpanFlows>().copied().unwrap_or_default();
 
         if let Some(delayed_slice_begin) = extensions.get::<DelayedSliceBegin>() {
+            // Delaying the begin exists precisely so that everything recorded
+            // on the span can go out with it, so hand the annotations over
+            // rather than repeating them on the end as well.
             let slice_begin_packet = self.create_slice_begin_track_event_packet(
                 delayed_slice_begin.timestamp_ns,
                 delayed_slice_begin.timestamp_clock_id,
                 delayed_slice_begin.meta,
                 delayed_slice_begin.track_uuid,
                 delayed_slice_begin.sequence_id,
-                debug_annotations.clone(),
+                mem::take(&mut debug_annotations),
                 delayed_slice_begin.flows,
             );
             self.ensure_context_known(delayed_slice_begin.meta);
@@ -378,7 +381,6 @@ where
         let packet = self.create_slice_end_track_event_packet(
             trace_time_ns(),
             trace_clock_id(),
-            meta,
             track_uuid,
             sequence_id,
             debug_annotations,
@@ -692,13 +694,18 @@ where
         }
     }
 
+    /// Builds a slice end packet.
+    ///
+    /// Deliberately carries no name or source location: Perfetto takes both
+    /// from the matching begin, and the SDK's own `TRACE_EVENT_END` skips
+    /// them for the same reason. Repeating them costs an absolute path per
+    /// slice for nothing.
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     fn create_slice_end_track_event_packet(
         &self,
         timestamp_ns: u64,
         timestamp_clock_id: u32,
-        meta: &tracing::Metadata,
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
         debug_annotations: debug_annotations::ProtoDebugAnnotations,
@@ -716,9 +723,7 @@ where
                 r#type: Some(track_event::Type::SliceEnd as i32),
                 terminating_flow_ids: flows.terminating(),
                 track_uuid: Some(track_uuid.as_raw()),
-                name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
                 debug_annotations: debug_annotations.into_proto(),
-                source_location_field: Self::source_location_field(meta),
                 ..Default::default()
             })),
             ..Default::default()
