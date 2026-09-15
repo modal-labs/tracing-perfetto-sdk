@@ -397,10 +397,18 @@ where
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
     ) {
+        // `Metadata::name` for an event is a generated "event <file>:<line>"
+        // string, which is not something anyone wants to read off a track, so
+        // prefer the event's own message.
+        let name = debug_annotations
+            .message()
+            .unwrap_or_else(|| meta.name())
+            .to_owned();
         let packet = self.create_event_track_event_packet(
             trace_time_ns(),
             trace_clock_id(),
             meta,
+            name,
             debug_annotations,
             track_uuid,
             sequence_id,
@@ -496,11 +504,11 @@ where
 
     #[cfg(feature = "tokio")]
     fn ensure_task_track_known(&self, meta: &tracing::Metadata, name: &str) {
-        if let Some(task_id) = task::try_id() {
-            if self.inner.task_tracks_sent.insert(task_id) {
-                let packet = self.create_task_track_descriptor(task_id, name.to_owned());
-                self.write_packet(meta, packet);
-            }
+        if let Some(task_id) = task::try_id()
+            && self.inner.task_tracks_sent.insert(task_id)
+        {
+            let packet = self.create_task_track_descriptor(task_id, name.to_owned());
+            self.write_packet(meta, packet);
         }
     }
 
@@ -656,6 +664,11 @@ where
         }
     }
 
+    // Each argument is a distinct proto field to populate, so the count
+    // tracks the shape of TracePacket rather than any real complexity.
+    // Worth folding the timestamp/track/sequence trio into a struct at some
+    // point, since every create_* function here repeats it.
+    #[allow(clippy::too_many_arguments)]
     #[must_use]
     fn create_slice_begin_track_event_packet(
         &self,
@@ -679,6 +692,7 @@ where
                 r#type: Some(track_event::Type::SliceBegin as i32),
                 track_uuid: Some(track_uuid.as_raw()),
                 name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
+                categories: Self::categories(meta),
                 debug_annotations: debug_annotations.into_proto(),
                 source_location_field: Self::source_location_field(meta),
                 flow_ids: flows.beginning(),
@@ -694,6 +708,7 @@ where
     /// from the matching begin, and the SDK's own `TRACE_EVENT_END` skips
     /// them for the same reason. Repeating them costs an absolute path per
     /// slice for nothing.
+    #[allow(clippy::too_many_arguments)]
     #[must_use]
     fn create_slice_end_track_event_packet(
         &self,
@@ -729,6 +744,7 @@ where
         timestamp_ns: u64,
         timestamp_clock_id: u32,
         meta: &tracing::Metadata,
+        name: String,
         debug_annotations: debug_annotations::ProtoDebugAnnotations,
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
@@ -744,7 +760,8 @@ where
             data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
                 r#type: Some(track_event::Type::Instant as i32),
                 track_uuid: Some(track_uuid.as_raw()),
-                name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
+                name_field: Some(track_event::NameField::Name(name)),
+                categories: Self::categories(meta),
                 debug_annotations: debug_annotations.into_proto(),
                 source_location_field: Self::source_location_field(meta),
                 ..Default::default()
@@ -827,6 +844,15 @@ where
             "size_bytes" | "bytes" => Some(counter_descriptor::Unit::SizeBytes),
             _ => None,
         }
+    }
+
+    /// The Perfetto categories to tag an event with.
+    ///
+    /// Categories are what Perfetto filters on, and `tracing`'s equivalents
+    /// are the target and the level, neither of which reached the trace
+    /// before.
+    fn categories(meta: &tracing::Metadata) -> Vec<String> {
+        vec![meta.target().to_owned(), meta.level().to_string()]
     }
 
     fn source_location_field(meta: &tracing::Metadata) -> Option<track_event::SourceLocationField> {
@@ -1165,12 +1191,12 @@ where
         {
             use std::io::Write as _;
 
-            let data = ffi_utils::with_session_lock(&*self.ffi_session, |session| {
+            let data = ffi_utils::with_session_lock(&self.ffi_session, |session| {
                 ffi_utils::do_flush(session, flush_timeout)?;
                 let data = ffi_utils::do_poll_traces(session, poll_timeout)?;
                 Ok(data)
             })?;
-            self.writer.make_writer().write_all(&*data.data)?;
+            self.writer.make_writer().write_all(&data.data)?;
         }
 
         Ok(())
@@ -1316,7 +1342,7 @@ fn background_poller_thread<W>(
     use std::io::Write as _;
 
     loop {
-        let poll_result = ffi_utils::with_session_lock(&*ffi_session, |session| {
+        let poll_result = ffi_utils::with_session_lock(&ffi_session, |session| {
             // TODO: consider making timeouts configurable
             ffi_utils::do_flush(session, background_flush_timeout)?;
             let data = ffi_utils::do_poll_traces(session, background_poll_timeout)?;
@@ -1325,7 +1351,7 @@ fn background_poller_thread<W>(
 
         match poll_result {
             Ok(data) => {
-                let _ = writer.make_writer().write_all(&*data.data);
+                let _ = writer.make_writer().write_all(&data.data);
             }
             Err(error) => match error {
                 error::Error::TimedOut => {
