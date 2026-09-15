@@ -16,6 +16,8 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
       run: cargo build --all
     - name: Run tests
@@ -26,6 +28,8 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
       run: cargo build --all --no-default-features
     - name: Run tests
@@ -36,6 +40,8 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
       run: cargo build --all --features=tokio
     - name: Run tests
@@ -46,6 +52,8 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
       run: cargo build --all --features=serde
     - name: Run tests
@@ -56,6 +64,8 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
       run: cargo build --all --features=serde,tokio
     - name: Run tests
@@ -66,6 +76,8 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Clippy
       run: cargo clippy --all --all-targets --features=serde,tokio -- -D warnings
     - name: Clippy (no default features)
@@ -76,6 +88,8 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
       run: cargo build --all --features=serde,tokio
     - name: Run tests
