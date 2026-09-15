@@ -42,7 +42,7 @@ pub struct Counter {
     pub value: CounterValue,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CounterValue {
     Float(f64),
     Int(i64),
