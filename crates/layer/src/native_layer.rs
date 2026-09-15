@@ -395,10 +395,18 @@ where
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
     ) {
+        // `Metadata::name` for an event is a generated "event <file>:<line>"
+        // string, which is not something anyone wants to read off a track, so
+        // prefer the event's own message.
+        let name = debug_annotations
+            .message()
+            .unwrap_or_else(|| meta.name())
+            .to_owned();
         let packet = self.create_event_track_event_packet(
             trace_time_ns(),
             trace_clock_id(),
             meta,
+            name,
             debug_annotations,
             track_uuid,
             sequence_id,
@@ -677,6 +685,7 @@ where
                 r#type: Some(track_event::Type::SliceBegin as i32),
                 track_uuid: Some(track_uuid.as_raw()),
                 name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
+                categories: Self::categories(meta),
                 debug_annotations: debug_annotations.into_proto(),
                 source_location_field: Self::source_location_field(meta),
                 flow_ids: flows.beginning(),
@@ -724,6 +733,7 @@ where
         timestamp_ns: u64,
         timestamp_clock_id: u32,
         meta: &tracing::Metadata,
+        name: String,
         debug_annotations: debug_annotations::ProtoDebugAnnotations,
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
@@ -739,7 +749,8 @@ where
             data: Some(trace_packet::Data::TrackEvent(schema::TrackEvent {
                 r#type: Some(track_event::Type::Instant as i32),
                 track_uuid: Some(track_uuid.as_raw()),
-                name_field: Some(track_event::NameField::Name(meta.name().to_owned())),
+                name_field: Some(track_event::NameField::Name(name)),
+                categories: Self::categories(meta),
                 debug_annotations: debug_annotations.into_proto(),
                 source_location_field: Self::source_location_field(meta),
                 ..Default::default()
@@ -822,6 +833,15 @@ where
             "size_bytes" | "bytes" => Some(counter_descriptor::Unit::SizeBytes),
             _ => None,
         }
+    }
+
+    /// The Perfetto categories to tag an event with.
+    ///
+    /// Categories are what Perfetto filters on, and `tracing`'s equivalents
+    /// are the target and the level, neither of which reached the trace
+    /// before.
+    fn categories(meta: &tracing::Metadata) -> Vec<String> {
+        vec![meta.target().to_owned(), meta.level().to_string()]
     }
 
     fn source_location_field(meta: &tracing::Metadata) -> Option<track_event::SourceLocationField> {
