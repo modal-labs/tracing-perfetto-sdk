@@ -395,18 +395,10 @@ where
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
     ) {
-        // `Metadata::name` for an event is a generated "event <file>:<line>"
-        // string, which is not something anyone wants to read off a track, so
-        // prefer the event's own message.
-        let name = debug_annotations
-            .message()
-            .unwrap_or_else(|| meta.name())
-            .to_owned();
         let packet = self.create_event_track_event_packet(
             trace_time_ns(),
             trace_clock_id(),
             meta,
-            name,
             debug_annotations,
             track_uuid,
             sequence_id,
@@ -739,11 +731,17 @@ where
         timestamp_ns: u64,
         timestamp_clock_id: u32,
         meta: &tracing::Metadata,
-        name: String,
         debug_annotations: debug_annotations::ProtoDebugAnnotations,
         track_uuid: ids::TrackUuid,
         sequence_id: ids::SequenceId,
     ) -> schema::TracePacket {
+        // `Metadata::name` for an event is a generated "event <file>:<line>"
+        // string, which is not something anyone wants to read off a track, so
+        // prefer the event's own message.
+        let name = debug_annotations
+            .message()
+            .unwrap_or_else(|| meta.name())
+            .to_owned();
         schema::TracePacket {
             timestamp: Some(timestamp_ns),
             timestamp_clock_id: Some(timestamp_clock_id),
